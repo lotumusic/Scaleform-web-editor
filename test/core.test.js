@@ -123,3 +123,38 @@ test('display list records colour transform tags', async () => {
   assert.strictEqual(e.cxTag, t);
   assert.ok(e.life.cxTags.includes(t));
 });
+
+function rawTag(code, body) {
+  const w = new SWF.Writer();
+  if (body.length >= 0x3f) { w.u16((code << 6) | 0x3f); w.u32(body.length); } else w.u16((code << 6) | body.length);
+  return SWF.concat([w.toBytes(), body]);
+}
+
+test('PlaceObject3 by class name makes a display list entry', () => {
+  const w = new SWF.Writer();
+  w.u8(0x04 | 0x20); w.u8(0x08); w.u16(1); w.str('Widgets.Card'); w.matrix([1, 0, 0, 1, 200, 0]); w.str('Card_mc');
+  const bytes = SWF.concat([rawTag(70, w.toBytes()), rawTag(1, new Uint8Array(0)), rawTag(0, new Uint8Array(0))]);
+  const tags = SWF.parseTags(bytes, 0, bytes.length).tags;
+  const [e] = SWF.displayList(tags, 1);
+  assert.strictEqual(e.charId, null);
+  assert.strictEqual(e.className, 'Widgets.Card');
+  assert.strictEqual(e.name, 'Card_mc');
+  assert.strictEqual(e.matrix[4], 200);
+});
+
+test('imports with no assets are still recorded as linked files', async () => {
+  const bytes = SWFSample.build();
+  const m = await SWF.load(bytes);
+  const w = new SWF.Writer(); w.str('Shared/ButtonClips.gfx'); w.u8(1); w.u8(0); w.u16(0);
+  m.tags.unshift({ code: 71, long: false, body: w.toBytes() });
+  const m2 = await SWF.load(await SWF.save(m));
+  assert.deepStrictEqual(m2.importUrls, ['Shared/ButtonClips.gfx']);
+  assert.strictEqual(m2.imports.length, 0);
+  assert.strictEqual(SWF.fileKey(m2.importUrls[0]), SWF.fileKey('buttonclips.swf'));
+});
+
+test('class and export names map back to character ids', async () => {
+  const m = await SWF.load(SWFSample.build());
+  assert.strictEqual(SWF.idForName(m, 'QuickLootMenu'), 40);
+  assert.strictEqual(SWF.idForName(m, 'Nope'), undefined);
+});

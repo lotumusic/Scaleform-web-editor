@@ -122,11 +122,14 @@ kbd { font-family: var(--f-mono); font-size: 11px; padding: 0 4px; border: 1px s
 .field label { font-family: var(--f-display); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .field input { height: 30px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); padding: 0 8px; font-family: var(--f-mono); font-variant-numeric: tabular-nums; width: 100%; min-width: 0; }
 .field input:focus { border-color: var(--select); outline: none; }
-.note { padding: 8px 10px; border-radius: 4px; background: var(--panel-2); border-left: 3px solid var(--faint); color: var(--muted); line-height: 1.45; }
+.note { margin: 0; padding: 8px 10px; border-radius: 4px; background: var(--panel-2); border-left: 3px solid var(--faint); color: var(--muted); line-height: 1.45; }
 .note.warn { border-left-color: var(--s-yellow); }
 .note.info { border-left-color: var(--select); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-family: var(--f-mono); font-size: 12px; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+.kv.linked dt { font-family: var(--f-display); text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+.kv.linked dt.ok { color: var(--ok); } .kv.linked dt.miss { color: var(--s-yellow); }
+.faint { color: var(--faint); }
 .field textarea, .field select { border-radius: 4px; border: 1px solid var(--line); background: var(--bg); padding: 6px 8px; width: 100%; min-width: 0; }
 .field select { height: 30px; padding: 0 6px; }
 .field textarea { font-family: var(--f-mono); font-size: 12px; min-height: 64px; resize: vertical; line-height: 1.4; }
@@ -168,7 +171,10 @@ kbd { font-family: var(--f-mono); font-size: 11px; padding: 0 4px; border: 1px s
     <div class="file"><span class="name" id="fileName">No file</span><span class="chip" id="editCount">No edits</span></div>
     <div class="actions">
       <label class="btn" for="fileInput">Open .swf</label>
-      <input type="file" id="fileInput" accept=".swf,.gfx" hidden>
+      <input type="file" id="fileInput" accept=".swf,.gfx" multiple hidden>
+      <label class="btn" for="libInput" title="Add the other .swf files this menu loads">Linked files</label>
+      <input type="file" id="libInput" accept=".swf,.gfx" multiple hidden>
+      <input type="file" id="libDir" webkitdirectory multiple hidden>
       <button class="btn" id="sampleBtn" type="button">Sample</button>
       <button class="btn" id="undoBtn" type="button" title="Undo (Ctrl+Z)">Undo</button>
       <button class="btn" id="redoBtn" type="button" title="Redo (Ctrl+Shift+Z)">Redo</button>
@@ -190,6 +196,7 @@ kbd { font-family: var(--f-mono); font-size: 11px; padding: 0 4px; border: 1px s
           <li>Vanilla menus live in <code>Starfield - Interface.ba2</code>. Extract it with Bethesda Archive Extractor or the Creation Kit's Archive2, and look in <code>Interface/</code>.</li>
           <li>Mod menus (like a quick loot mod) ship as loose files: <code>Data/Interface/…/*.swf</code>.</li>
           <li>Open the .swf here, click an element, then drag it, resize it with the handles, or type values in the inspector. The inspector also sets opacity and tint, recolours shapes, and edits text fields (wording, colour, size, alignment, box size).</li>
+          <li>Menus often load other files (shared widgets, button art, fonts). Add them with <b>Linked files</b>, or pick your whole extracted <code>Interface</code> folder, to see those parts. They're shown for reference only; export writes just the menu you opened.</li>
           <li>Export saves a .zip with the edited .swf under the same name. Put it back at the same path under <code>Data/Interface/</code>.</li>
         </ol>
         <p>Positions set by ActionScript at runtime override the layout saved here. If an element snaps back in game, its code moves it.</p>
@@ -239,7 +246,7 @@ const downloadsP = (window.claude && window.claude.use) ? window.claude.use('dow
 const S = {
   movie: null, fileName: '', mode: { kind: 'stage' }, frames: new Map(), scope: [], sel: null, hover: null,
   view: { z: 0.5, x: 0, y: 0 }, undo: [], redo: [], allKeys: true, showBounds: false, backdrop: 'scene',
-  tree: [], hits: [], orig: new WeakMap(), uses: new Map(), images: new Map(), shapes: new Map(),
+  tree: [], hits: [], orig: new WeakMap(), uses: new Map(), shapes: new WeakMap(), libFiles: new Map(), libs: new Map(),
   expanded: new Set(), tab: 'layers', filter: '', drag: null, space: false, lastNudge: null,
 };
 
@@ -254,10 +261,11 @@ const fmt = (v, d = 2) => { const s = (Math.round(v * Math.pow(10, d)) / Math.po
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function walkTags(tags, fn) { for (const t of tags) { fn(t); if (t.children) walkTags(t.children, fn); } }
 function safePlace(t) { try { return SWF.placeInfo(t); } catch (e) { return null; } }
-function className(id) { return S.movie.names.get(id) || ''; }
+function className(id, mv) { return (mv || S.movie).names.get(id) || ''; }
+function nodeClass(n) { return n.char.type === 'classref' ? n.char.className : className(n.char.id, n.mv); }
 function charLabel(ch) {
   if (!ch) return 'missing';
-  return ({ sprite: 'Symbol', shape: 'Shape', text: 'Text field', stext: 'Static text', bitmap: 'Bitmap', import: 'Imported', font: 'Font', other: ch.kind || 'Other', missing: 'Missing' })[ch.type] || ch.type;
+  return ({ sprite: 'Symbol', shape: 'Shape', text: 'Text field', stext: 'Static text', bitmap: 'Bitmap', import: 'Imported', classref: 'Class', font: 'Font', other: ch.kind || 'Other', missing: 'Missing' })[ch.type] || ch.type;
 }
 function nodeName(n) { return n.entry.name || ''; }
 function toast(msg, kind) {
@@ -270,9 +278,98 @@ async function openBytes(bytes, name) {
   try { const m = await SWF.load(bytes); setMovie(m, name); }
   catch (e) { toast('Could not open ' + name + ': ' + e.message, 'err'); }
 }
+const isSwf = (f) => /\.(swf|gfx)$/i.test(f.name);
+// Opens several files at once: the one no other file imports becomes the menu,
+// the rest become linked files.
+async function openFiles(files) {
+  files = [...files].filter(isSwf);
+  if (!files.length) { toast('Pick a .swf or .gfx file', 'err'); return; }
+  if (files.length === 1) { openBytes(new Uint8Array(await files[0].arrayBuffer()), files[0].name); return; }
+  const parsed = [];
+  for (const f of files.slice(0, 40)) { try { parsed.push({ f, m: await SWF.load(new Uint8Array(await f.arrayBuffer())) }); } catch (e) { /* not a usable SWF */ } }
+  if (!parsed.length) { toast('None of those files could be opened', 'err'); return; }
+  const imported = new Set(parsed.flatMap((p) => p.m.importUrls.map(SWF.fileKey)));
+  const main = parsed.find((p) => !imported.has(SWF.fileKey(p.f.name))) || parsed[0];
+  for (const p of parsed) if (p !== main) addLib(p.f, p.m);
+  for (const f of files.slice(40)) addLib(f);
+  setMovie(main.m, main.f.name);
+  toast('Opened ' + main.f.name + '. ' + (files.length - 1) + (files.length > 2 ? ' other files were added as linked files.' : ' other file was added as a linked file.'));
+}
+// ---------- linked files ----------
+// Picked files wait in libFiles by base name and are parsed once an open
+// movie imports them; parsed ones live in libs (null when unreadable).
+function addLib(f, parsed) {
+  const k = SWF.fileKey(f.name);
+  S.libFiles.set(k, f); S.libs.delete(k);
+  if (parsed) { parsed.fileName = f.name; parsed.images = new Map(); S.libs.set(k, parsed); decodeImages(parsed); }
+}
+function linkedKeys() {
+  const seen = new Set(), out = [];
+  const visit = (mv) => {
+    for (const url of mv.importUrls) {
+      const key = SWF.fileKey(url); if (seen.has(key)) continue;
+      seen.add(key); out.push({ key, url, via: mv });
+      const L = S.libs.get(key); if (L) visit(L);
+    }
+  };
+  if (S.movie) visit(S.movie);
+  return out;
+}
+async function loadLinked(announce) {
+  const m = S.movie; let added = 0;
+  for (let again = true; again;) {
+    again = false;
+    for (const { key } of linkedKeys()) {
+      if (S.libs.has(key) || !S.libFiles.has(key)) continue;
+      const f = S.libFiles.get(key); S.libs.set(key, null);
+      try {
+        const L = await SWF.load(new Uint8Array(await f.arrayBuffer()));
+        L.fileName = f.name; L.images = new Map(); S.libs.set(key, L); decodeImages(L); added++; again = true;
+      } catch (e) { toast('Could not open ' + f.name + ': ' + e.message, 'err'); }
+    }
+  }
+  if (S.movie !== m) return;
+  if (added) { rebuild(); updateAll(); }
+  const missing = linkedKeys().filter((l) => !S.libs.get(l.key));
+  if (announce && missing.length) toast('This menu loads ' + missing.length + ' other file' + (missing.length > 1 ? 's' : '') + ' (' + missing.map((l) => l.url).join(', ') + '). Add ' + (missing.length > 1 ? 'them' : 'it') + ' with Linked files to see everything.');
+  else if (added) toast('Loaded ' + added + ' linked file' + (added > 1 ? 's' : '') + '.', 'ok');
+}
+async function addLinkedFiles(files) {
+  files = [...files].filter(isSwf);
+  if (!files.length) { toast('No .swf or .gfx files there', 'err'); return; }
+  const mainKey = S.movie ? SWF.fileKey(S.fileName) : null;
+  for (const f of files) if (SWF.fileKey(f.name) !== mainKey) addLib(f);
+  if (!S.movie) { toast('Added ' + files.length + ' linked file(s). Open a menu to use them.'); return; }
+  const before = linkedKeys().filter((l) => S.libs.get(l.key)).length;
+  await loadLinked(false);
+  if (linkedKeys().filter((l) => S.libs.get(l.key)).length === before) { toast('None of those files are loaded by this menu.'); updateAll(); }
+}
+// Finds what a placement shows: a local symbol, an imported one, or a class
+// defined here or in a loaded linked file.
+function resolveId(mv, id, guard) {
+  const ch = mv.dict.get(id);
+  if (!ch) return { ch: { type: 'missing', id }, mv };
+  if (ch.type === 'import' && guard < 8) {
+    const L = S.libs.get(SWF.fileKey(ch.url)); const lid = L && SWF.idForName(L, ch.name);
+    if (lid != null) return resolveId(L, lid, guard + 1);
+  }
+  return { ch, mv };
+}
+function resolveEntry(mv, e) {
+  if (e.charId != null) return resolveId(mv, e.charId, 0);
+  const name = e.className || '';
+  const local = SWF.idForName(mv, name);
+  if (local != null) return resolveId(mv, local, 0);
+  for (const { key } of linkedKeys()) {
+    const L = S.libs.get(key); const id = L && SWF.idForName(L, name);
+    if (id != null) return resolveId(L, id, 0);
+  }
+  return { ch: { type: 'classref', id: null, className: name }, mv };
+}
 function setMovie(m, name) {
+  m.images = new Map();
   Object.assign(S, { movie: m, fileName: name, mode: { kind: 'stage' }, frames: new Map(), scope: [], sel: null, hover: null,
-    undo: [], redo: [], orig: new WeakMap(), uses: new Map(), images: new Map(), shapes: new Map(), expanded: new Set() });
+    undo: [], redo: [], orig: new WeakMap(), uses: new Map(), shapes: new WeakMap(), expanded: new Set() });
   walkTags(m.tags, (t) => {
     S.orig.set(t, { code: t.code, body: t.body });
     if (isPlace(t)) { const po = safePlace(t); if (po && po.hasChar) S.uses.set(po.charId, (S.uses.get(po.charId) || 0) + 1); }
@@ -288,12 +385,10 @@ function setMovie(m, name) {
     if (pick) { S.mode = { kind: 'symbol', id: pick.id }; rebuild(); toast('The stage is empty (the menu is built by code), so the symbol ' + (className(pick.id) || '#' + pick.id) + ' is open. Pick others under Symbols.'); }
   }
   for (const w of m.warnings) toast(w);
-  if (m.imports.length) toast(m.imports.length + ' element(s) come from other files (' + [...new Set(m.imports.map((i) => i.url))].join(', ') + ') and show as placeholders.');
   $('fileName').textContent = name;
-  fit(); decodeImages(); updateAll();
+  fit(); decodeImages(m); updateAll(); loadLinked(true);
 }
-async function decodeImages() {
-  const m = S.movie;
+async function decodeImages(m) {
   for (const ch of m.dict.values()) {
     if (ch.type !== 'bitmap' || ch.external) continue;
     try {
@@ -312,18 +407,17 @@ async function decodeImages() {
           c2.putImageData(id, 0, 0);
         }
       }
-      if (S.movie !== m) return;
-      S.images.set(ch.id, canvas);
+      m.images.set(ch.id, canvas);
     } catch (e) { /* undecodable bitmaps render as grey placeholders */ }
   }
-  if (S.movie === m) { rebuild(); draw(); }
+  if (m.images.size && (S.movie === m || [...S.libs.values()].includes(m))) { rebuild(); draw(); }
 }
 
 // ---------- display tree ----------
 function rootTags() { return S.mode.kind === 'stage' ? S.movie.tags : S.movie.dict.get(S.mode.id).tag.children; }
 function rootFrames() { return S.mode.kind === 'stage' ? S.movie.frameCount : S.movie.dict.get(S.mode.id).frameCount; }
 function frameOf(key) { return S.frames.get(key) || 1; }
-function rebuild() { if (S.movie) refreshTexts(); S.tree = S.movie ? buildNodes(rootTags(), frameOf(''), [], I, null, 0, null) : []; }
+function rebuild() { if (S.movie) refreshTexts(); S.tree = S.movie ? buildNodes(rootTags(), frameOf(''), [], I, null, 0, null, S.movie, false) : []; }
 // Text definitions are parsed once at load; re-read any whose tag was edited or undone.
 const TEXT_OPTIONAL = ['fontId', 'fontClass', 'fontHeight', 'maxLength', 'align', 'leftMargin', 'rightMargin', 'indent', 'leading'];
 function refreshTexts() {
@@ -333,15 +427,17 @@ function refreshTexts() {
     Object.assign(ch, SWF.parseEditText(ch.tag.body), { bodyRef: ch.tag.body });
   }
 }
-function buildNodes(tags, frame, path, world, cx, lvl, parent) {
+// mv is the movie these tags belong to; foreign means they come from a linked
+// file, so they are shown but never edited.
+function buildNodes(tags, frame, path, world, cx, lvl, parent, mv, foreign) {
   let entries; try { entries = SWF.displayList(tags, frame); } catch (e) { entries = []; }
   const out = [];
   for (const e of entries) {
     const p = path.concat(e.depth);
-    const ch = S.movie.dict.get(e.charId) || { type: 'missing', id: e.charId };
+    const r = resolveEntry(mv, e), ch = r.ch;
     const w = M.mul(world, e.matrix);
-    const n = { path: p, key: p.join('/'), entry: e, char: ch, world: w, parentWorld: world, cx: SWF.cxCompose(cx, e.cx), tags, frame, parent, children: null };
-    if (ch.type === 'sprite' && lvl < 32) { n.spriteFrame = frameOf(n.key); n.children = buildNodes(ch.tag.children, n.spriteFrame, p, w, n.cx, lvl + 1, n); }
+    const n = { path: p, key: p.join('/'), entry: e, char: ch, mv: r.mv, linked: r.mv !== mv, foreign, world: w, parentWorld: world, cx: SWF.cxCompose(cx, e.cx), tags, frame, parent, children: null };
+    if (ch.type === 'sprite' && lvl < 32) { n.spriteFrame = frameOf(n.key); n.children = buildNodes(ch.tag.children, n.spriteFrame, p, w, n.cx, lvl + 1, n, r.mv, foreign || n.linked); }
     n.bounds = localBounds(n);
     out.push(n);
   }
@@ -352,12 +448,20 @@ function localBounds(n) {
   switch (ch.type) {
     case 'shape': case 'text': return ch.bounds;
     case 'stext': return M.boundsOf(ch.matrix, ch.bounds);
-    case 'bitmap': { const im = S.images.get(ch.id); return im ? { xmin: 0, ymin: 0, xmax: im.width * 20, ymax: im.height * 20 } : null; }
+    case 'bitmap': { const im = n.mv.images && n.mv.images.get(ch.id); return im ? { xmin: 0, ymin: 0, xmax: im.width * 20, ymax: im.height * 20 } : null; }
     case 'sprite': { let b = null; for (const c of n.children) if (c.bounds && c.entry.visible !== false) b = union(b, M.boundsOf(c.entry.matrix, c.bounds)); return b; }
     default: return null;
   }
 }
-function boxOf(n) { return n.bounds || { xmin: -200, xmax: 200, ymin: -200, ymax: 200 }; }
+const UNKNOWN_BOX = { xmin: 0, xmax: 3200, ymin: 0, ymax: 800 };
+function boxOf(n) { return n.bounds || (/^(classref|import|missing)$/.test(n.char.type) ? UNKNOWN_BOX : { xmin: -200, xmax: 200, ymin: -200, ymax: 200 }); }
+// Linked content is selected as a whole: the topmost linked node owns its insides.
+function ownerOf(n) {
+  let list = S.tree;
+  for (const d of n.path) { const x = (list || []).find((y) => y.entry.depth === d); if (!x) break; if (x.linked) return x; list = x.children; }
+  return n;
+}
+const canEnter = (n) => !!n && !!n.children && !n.linked;
 function nodeAt(path) {
   if (!path) return null;
   let list = S.tree, n = null;
@@ -443,13 +547,14 @@ function drawNode(n, V) {
       case 'shape': drawShape(n, px); break;
       case 'text': drawText(n, px); break;
       case 'bitmap': {
-        const im = S.images.get(n.char.id);
+        const im = n.mv.images && n.mv.images.get(n.char.id);
         if (im) { ctx.globalAlpha *= n.cx ? n.cx.m[3] / 256 : 1; ctx.drawImage(im, 0, 0, im.width * 20, im.height * 20); }
         else placeholder(n, px, 'bitmap #' + n.char.id);
         break;
       }
       case 'stext': placeholder(n, px, 'static text'); break;
-      case 'import': placeholder(n, px, n.char.name); break;
+      case 'import': placeholder(n, px, n.char.name + ' (' + n.char.url + ')'); break;
+      case 'classref': placeholder(n, px, n.char.className || 'class'); break;
       default: placeholder(n, px, charLabel(n.char) + ' #' + n.char.id);
     }
     if (S.showBounds && n.bounds && n.char.type !== 'text') dashed(n.bounds, px, 'rgba(79,176,232,.55)');
@@ -457,7 +562,7 @@ function drawNode(n, V) {
   S.hits.push(n);
 }
 function shapeData(ch) {
-  let d = S.shapes.get(ch.id);
+  let d = S.shapes.get(ch);
   if (d && d.body === ch.tag.body) return d;
   try {
     const s = SWF.parseShape(ch.tag); const un = new Path2D();
@@ -467,7 +572,7 @@ function shapeData(ch) {
     }));
     d = { groups, union: un, hasFill: groups.some((g) => g.fills.some((f) => !f.empty)), hasAlpha: s.hasAlpha };
   } catch (e) { d = { error: e.message, groups: [] }; }
-  d.body = ch.tag.body; S.shapes.set(ch.id, d); return d;
+  d.body = ch.tag.body; S.shapes.set(ch, d); return d;
 }
 function contoursPath(contours) {
   const p = new Path2D();
@@ -492,14 +597,14 @@ function drawShape(n, px) {
   if (d.error) { placeholder(n, px, 'shape #' + n.char.id); return; }
   const cx = n.cx;
   for (const g of d.groups) {
-    for (const f of g.fills) if (!f.empty) fillWith(f.path, f.style, cx);
+    for (const f of g.fills) if (!f.empty) fillWith(f.path, f.style, cx, n.mv);
     for (const l of g.lines) if (!l.empty) {
       ctx.lineWidth = Math.max(l.style.width, px); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.strokeStyle = rgba(SWF.cxApply(cx, l.style.color)); ctx.stroke(l.path);
     }
   }
 }
-function fillWith(path, st, cx) {
+function fillWith(path, st, cx, mv) {
   if (st.type === 0) { ctx.fillStyle = rgba(SWF.cxApply(cx, st.color)); ctx.fill(path, 'evenodd'); return; }
   if (st.stops) {
     const gm = st.matrix;
@@ -508,7 +613,7 @@ function fillWith(path, st, cx) {
     const p = new Path2D(); p.addPath(path, dm(M.inv(gm)));
     ctx.save(); ctx.transform(...gm); ctx.fillStyle = g; ctx.fill(p, 'evenodd'); ctx.restore(); return;
   }
-  const im = S.images.get(st.bitmapId);
+  const im = mv.images && mv.images.get(st.bitmapId);
   if (!im) { ctx.fillStyle = 'rgba(140,148,160,.35)'; ctx.fill(path, 'evenodd'); return; }
   const pat = ctx.createPattern(im, st.repeat ? 'repeat' : 'no-repeat'); pat.setTransform(dm(st.matrix));
   ctx.save(); ctx.imageSmoothingEnabled = st.smooth; if (cx) ctx.globalAlpha *= Math.max(0, Math.min(1, cx.m[3] / 256));
@@ -557,7 +662,8 @@ function placeholder(n, px, text) {
   const b = boxOf(n);
   ctx.save(); ctx.fillStyle = 'rgba(140,148,160,.12)'; ctx.fillRect(b.xmin, b.ymin, b.xmax - b.xmin, b.ymax - b.ymin); ctx.restore();
   dashed(b, px, 'rgba(160,168,180,.6)');
-  label(text, b.xmin, b.ymin, px, 'rgba(200,206,214,.85)');
+  ctx.save(); ctx.beginPath(); ctx.rect(b.xmin, b.ymin, b.xmax - b.xmin, b.ymax - b.ymin); ctx.clip();
+  label(text, b.xmin, b.ymin, px, 'rgba(200,206,214,.85)'); ctx.restore();
 }
 
 // ---------- overlay: selection & handles ----------
@@ -629,6 +735,7 @@ function handleAt(n, sx, sy, touch) {
   return -1;
 }
 function targetFor(leaf) {
+  leaf = ownerOf(leaf);
   let scope = S.scope;
   if (!startsWith(leaf.path, scope)) { let k = 0; while (k < scope.length && k < leaf.path.length - 1 && scope[k] === leaf.path[k]) k++; scope = scope.slice(0, k); }
   return { scope, sel: leaf.path.slice(0, scope.length + 1) };
@@ -774,7 +881,7 @@ vp.addEventListener('pointerleave', () => { if (!S.drag && S.hover) { S.hover = 
 vp.addEventListener('contextmenu', (ev) => ev.preventDefault());
 vp.addEventListener('dblclick', (ev) => {
   const [x, y] = pt(ev); const n = nodeAt(S.sel);
-  if (n && n.children) {
+  if (canEnter(n)) {
     S.scope = n.path.slice(); S.sel = null;
     const hit = hitAt(x, y); if (hit && startsWith(hit.path, S.scope) && hit.path.length > S.scope.length) S.sel = hit.path.slice(0, S.scope.length + 1);
     revealSel(); updateAll();
@@ -806,11 +913,14 @@ vp.addEventListener('dragover', (ev) => { ev.preventDefault(); $('drop').hidden 
 vp.addEventListener('dragleave', () => { $('drop').hidden = true; });
 vp.addEventListener('drop', async (ev) => {
   ev.preventDefault(); $('drop').hidden = true;
-  const f = ev.dataTransfer.files[0]; if (f) openBytes(new Uint8Array(await f.arrayBuffer()), f.name);
+  const files = [...ev.dataTransfer.files].filter(isSwf); if (!files.length) return;
+  // Files this menu loads are added as linked files; anything else opens as the menu.
+  const needed = new Set(linkedKeys().map((l) => l.key));
+  if (S.movie && files.some((f) => needed.has(SWF.fileKey(f.name)))) addLinkedFiles(files); else openFiles(files);
 });
-$('fileInput').addEventListener('change', async (ev) => {
-  const f = ev.target.files[0]; if (f) openBytes(new Uint8Array(await f.arrayBuffer()), f.name); ev.target.value = '';
-});
+$('fileInput').addEventListener('change', (ev) => { const fs = [...ev.target.files]; ev.target.value = ''; if (fs.length) openFiles(fs); });
+$('libInput').addEventListener('change', (ev) => { const fs = [...ev.target.files]; ev.target.value = ''; if (fs.length) addLinkedFiles(fs); });
+$('libDir').addEventListener('change', (ev) => { const fs = [...ev.target.files]; ev.target.value = ''; if (fs.length) addLinkedFiles(fs); });
 
 // keyboard
 addEventListener('keydown', (ev) => {
@@ -821,7 +931,7 @@ addEventListener('keydown', (ev) => {
   if (typing) return;
   if (ev.key === ' ') { S.space = true; vp.classList.add('pan'); ev.preventDefault(); return; }
   if (ev.key === 'Escape') { if (S.sel && S.sel.length > S.scope.length) S.sel = null; else if (S.scope.length) { S.sel = S.scope.slice(); S.scope = S.scope.slice(0, -1); } updateAll(); return; }
-  if (ev.key === 'Enter') { const n = nodeAt(S.sel); if (n && n.children) { S.scope = n.path.slice(); S.sel = null; updateAll(); } return; }
+  if (ev.key === 'Enter') { const n = nodeAt(S.sel); if (canEnter(n)) { S.scope = n.path.slice(); S.sel = null; updateAll(); } return; }
   const step = ev.shiftKey ? 10 : 1;
   const k = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
   if (k && S.sel) { ev.preventDefault(); nudge(k[0], k[1]); }
@@ -837,7 +947,7 @@ function renderBar() {
   $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length; $('exportBtn').disabled = !S.movie;
 }
 function revealSel() { if (!S.sel) return; for (let i = 1; i < S.sel.length; i++) S.expanded.add(S.sel.slice(0, i).join('/')); }
-function matchesFilter(n, q) { return (nodeName(n) + ' ' + className(n.char.id)).toLowerCase().includes(q) || (n.children || []).some((c) => matchesFilter(c, q)); }
+function matchesFilter(n, q) { return (nodeName(n) + ' ' + nodeClass(n)).toLowerCase().includes(q) || (!n.linked && (n.children || []).some((c) => matchesFilter(c, q))); }
 function renderTree() {
   const el = $('tree');
   $('tabLayers').setAttribute('aria-selected', S.tab === 'layers'); $('tabSymbols').setAttribute('aria-selected', S.tab === 'symbols');
@@ -849,16 +959,16 @@ function renderTree() {
       const n = nodes[i];
       if (q && !matchesFilter(n, q)) continue;
       count++;
-      const open = !!n.children && (q || S.expanded.has(n.key));
-      const name = nodeName(n); const cls = className(n.char.id);
+      const open = canEnter(n) && (q || S.expanded.has(n.key));
+      const name = nodeName(n); const cls = nodeClass(n);
       const classes = ['row'];
       if (samePath(n.path, S.sel)) classes.push('sel');
       if (samePath(n.path, S.scope)) classes.push('scope');
       if (n.entry.visible === false) classes.push('hid');
       rows.push(`<div class="${classes.join(' ')}" data-key="${n.key}" style="padding-left:${8 + lvl * 14}px" title="${esc(cls || charLabel(n.char))}">` +
-        `<span class="tw" data-tw="${n.children ? n.key : ''}">${n.children && n.children.length ? (open ? '▾' : '▸') : ''}</span>` +
+        `<span class="tw" data-tw="${canEnter(n) ? n.key : ''}">${canEnter(n) && n.children.length ? (open ? '▾' : '▸') : ''}</span>` +
         `<span class="nm${name ? '' : ' anon'}">${esc(name || cls.split('.').pop() || charLabel(n.char))}</span>` +
-        `<span class="ty">${n.entry.clipDepth ? 'mask' : esc(n.char.type === 'sprite' ? 'mc' : n.char.type)}</span></div>`);
+        `<span class="ty">${n.entry.clipDepth ? 'mask' : n.linked ? 'linked' : n.char.type === 'classref' ? 'class?' : esc(n.char.type === 'sprite' ? 'mc' : n.char.type)}</span></div>`);
       if (open) walk(n.children, lvl + 1);
     }
   };
@@ -888,7 +998,7 @@ $('tree').addEventListener('click', (ev) => {
   const now = Date.now(), again = lastRowClick.key === row.dataset.key && now - lastRowClick.t < 450;
   lastRowClick = { key: row.dataset.key, t: now };
   const n = nodeAt(path);
-  if (again && n && n.children) { S.scope = n.path.slice(); S.sel = null; S.expanded.add(n.key); updateAll(); return; }
+  if (again && canEnter(n)) { S.scope = n.path.slice(); S.sel = null; S.expanded.add(n.key); updateAll(); return; }
   S.sel = path; S.scope = path.slice(0, -1); revealSel(); updateAll();
 });
 let lastRowClick = { key: null, t: 0 };
@@ -905,7 +1015,7 @@ function renderCrumbs() {
   const parts = [`<button class="crumb" data-depth="0" type="button">${esc(S.mode.kind === 'stage' ? 'Stage' : (className(S.mode.id) || 'Symbol #' + S.mode.id))}</button>`];
   for (let i = 1; i <= S.scope.length; i++) {
     const n = nodeAt(S.scope.slice(0, i)); if (!n) break;
-    parts.push('<span class="sep">›</span>', `<button class="crumb" data-depth="${i}" type="button">${esc(nodeName(n) || className(n.char.id) || 'Symbol #' + n.char.id)}</button>`);
+    parts.push('<span class="sep">›</span>', `<button class="crumb" data-depth="${i}" type="button">${esc(nodeName(n) || nodeClass(n) || 'Symbol #' + n.char.id)}</button>`);
   }
   const tl = scopeTimeline(); let frames = '';
   if (tl.frames > 1) {
@@ -933,8 +1043,8 @@ function renderInspector() {
   const e = n.entry, p = M.decompose(e.matrix), b = n.bounds;
   const lw = b ? (b.xmax - b.xmin) / 20 : 0, lh = b ? (b.ymax - b.ymin) / 20 : 0;
   const skewed = Math.abs(((p.skewX - p.skewY + 540) % 360) - 180) > 0.01;
-  const cls = className(n.char.id);
-  const tl = n.parent ? { id: n.parent.char.id, uses: S.uses.get(n.parent.char.id) || 0, name: nodeName(n.parent) || className(n.parent.char.id) } : null;
+  const cls = nodeClass(n);
+  const tl = n.parent ? { id: n.parent.char.id, uses: S.uses.get(n.parent.char.id) || 0, name: nodeName(n.parent) || nodeClass(n.parent) } : null;
   const { tags } = matrixTagsFor(e);
   const keys = e.life.matrixTags.length;
   const canHide = true;
@@ -948,7 +1058,7 @@ function renderInspector() {
   </div></div>`);
   html.push(`<div class="btns">
     ${canHide ? `<button class="btn sm" data-act="vis" type="button">${e.visible === false ? 'Show' : 'Hide'}</button>` : ''}
-    ${n.children ? '<button class="btn sm" data-act="enter" type="button">Edit contents</button>' : ''}
+    ${canEnter(n) ? '<button class="btn sm" data-act="enter" type="button">Edit contents</button>' : ''}
     <button class="btn sm" data-act="reset" type="button">Reset to original</button>
   </div>`);
   if (n.children && n.char.frameCount > 1) {
@@ -958,11 +1068,13 @@ function renderInspector() {
   }
   if (keys > 1) html.push(`<p class="note info">${keys} keyframes set this element's position. ${S.allKeys ? 'Edits shift all of them together, so its animation keeps its shape.' : 'Only the keyframe at the current frame changes. Turn on "Edit all keyframes" to move the whole animation.'}</p>`);
   if (tl && tl.uses > 1) html.push(`<p class="note warn">This sits inside ${esc(tl.name || 'symbol #' + tl.id)}, which is used ${tl.uses} times. Changing it changes every copy.</p>`);
-  if (n.char.type === 'import') html.push(`<p class="note">Imported from <code>${esc(n.char.url)}</code> as ${esc(n.char.name)}. You can move it, but it can't be drawn here.</p>`);
+  if (n.char.type === 'import') html.push(`<p class="note warn">Imported from <code>${esc(n.char.url)}</code> as ${esc(n.char.name)}, which isn't loaded. Add that file with Linked files to see it. You can still move, restyle or hide it.</p>`);
+  if (n.char.type === 'classref') html.push(`<p class="note warn">Placed by its ActionScript class <code>${esc(n.char.className)}</code>, which isn't in this file or any loaded linked file. ${linkedKeys().some((l) => !S.libs.get(l.key)) ? 'Add the missing linked files to see it.' : 'It may be built entirely by code.'} You can still move, restyle or hide it.</p>`);
+  if (n.linked) html.push(`<p class="note info">Comes from <code>${esc(n.mv.fileName || '')}</code>. Move, resize, restyle or hide it here; its insides belong to that file and can't be edited from this menu.</p>`);
   if (e.visible === false) html.push('<p class="note">Hidden elements stay in the file with visibility off. Menu code can still show them.</p>');
   html.push(appearanceSection(n));
-  if (n.char.type === 'text' && !e.clipDepth) html.push(textSection(n));
-  if (n.char.type === 'shape' && !e.clipDepth) html.push(fillSection(n));
+  if (n.char.type === 'text' && !e.clipDepth && !n.linked) html.push(textSection(n));
+  if (n.char.type === 'shape' && !e.clipDepth && !n.linked) html.push(fillSection(n));
   html.push(`<dl class="kv"><dt>Class</dt><dd>${esc(cls || '—')}</dd><dt>Placed by</dt><dd>${['', '', '', '', 'PlaceObject'][e.placeTag.code] || (e.placeTag.code === 26 ? 'PlaceObject2' : 'PlaceObject3')}</dd><dt>Tags edited</dt><dd>${tags.length}</dd></dl>`);
   el.innerHTML = html.join('');
 }
@@ -972,12 +1084,24 @@ function field(id, label, value, disabled) {
 function fileInfo() {
   const m = S.movie, s = m.stage;
   const counts = {}; for (const c of m.dict.values()) counts[c.type] = (counts[c.type] || 0) + 1;
-  const imports = [...new Set(m.imports.map((i) => i.url))];
   return `<div><h2>${esc(S.fileName)}</h2><div class="meta"><span class="chip">${m.sig}</span><span class="chip">SWF ${m.version}</span><span class="chip">${(s.xmax - s.xmin) / 20}×${(s.ymax - s.ymin) / 20}</span></div></div>
   <p class="empty">Click an element on the canvas, or pick one under Layers. Drag to move it, pull the square handles to resize, and the round handle to rotate. Hold <kbd>Shift</kbd> to keep proportions, <kbd>Alt</kbd> to move off the pixel grid.</p>
   <dl class="kv"><dt>Symbols</dt><dd>${counts.sprite || 0}</dd><dt>Shapes</dt><dd>${counts.shape || 0}</dd><dt>Text fields</dt><dd>${counts.text || 0}</dd><dt>Bitmaps</dt><dd>${counts.bitmap || 0}</dd><dt>Frame rate</dt><dd>${fmt(m.frameRate)} fps</dd></dl>
-  ${imports.length ? `<p class="note">Elements imported from ${imports.map((u) => '<code>' + esc(u) + '</code>').join(', ')} show as grey placeholders.</p>` : ''}
+  ${linkedSection()}
   <p class="note">Text is previewed in a stand-in font. Starfield's own fonts load from <code>fonts_*.swf</code> in game.</p>`;
+}
+function linkedSection() {
+  const list = linkedKeys();
+  const rows = list.map((l) => {
+    const L = S.libs.get(l.key), font = /^fonts_/.test(l.key);
+    const st = L ? 'loaded' : S.libs.has(l.key) ? 'unreadable' : 'missing';
+    const via = l.via !== S.movie ? ' <span class="faint">via ' + esc(l.via.fileName || '') + '</span>' : '';
+    return `<dt class="${st === 'loaded' ? 'ok' : 'miss'}">${st}</dt><dd>${esc(l.url)}${via}${font && L ? ' <span class="faint">(fonts not used in preview)</span>' : ''}</dd>`;
+  });
+  return `<div><h3>Linked files</h3>
+    ${list.length ? `<dl class="kv linked">${rows.join('')}</dl>` : '<p class="empty">This menu doesn\'t load any other files.</p>'}
+    ${list.length ? `<div class="btns" style="margin-top:8px"><label class="btn sm" for="libInput">Add files…</label><label class="btn sm" for="libDir">Add folder…</label></div>
+    <p class="empty" style="margin-top:6px">Picking your extracted <code>Interface</code> folder finds them all. Linked files are only read, never changed.</p>` : ''}</div>`;
 }
 // ---------- design: appearance, text, fills ----------
 const hex = (c) => '#' + [0, 1, 2].map((i) => Math.round(c[i]).toString(16).padStart(2, '0')).join('');
@@ -1154,7 +1278,7 @@ $('exportBtn').onclick = async () => {
   } finally { btn.disabled = false; }
 };
 
-document.fonts && document.fonts.load('20px "Barlow"').then(() => { S.shapes.size && draw(); }).catch(() => {});
+document.fonts && document.fonts.load('20px "Barlow"').then(() => { S.movie && draw(); }).catch(() => {});
 openBytes(SWFSample.build(), 'QuickLootSample.swf');
 })();
 </script>

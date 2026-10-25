@@ -31,6 +31,13 @@ Other features:
 - Layers tree, a symbol browser, and frame/label picking for multi-frame clips.
 - Double-click to enter a symbol, <kbd>Esc</kbd> to go back, arrow keys to nudge.
 - Undo/redo, plus "Reset to original" for each element.
+- Linked files: menus load other `.swf` files at runtime (shared widgets, button
+  art, fonts). Add them with **Linked files** (or pick your whole extracted
+  `Interface` folder) and the editor draws those parts too, following links
+  between linked files. The inspector lists which linked files are loaded or
+  missing. Linked content is shown for reference: you can move, restyle or hide
+  where it's placed in your menu, but its insides belong to the other file and
+  export only writes the menu you opened.
 - Edits to animated elements can shift every keyframe together so the animation keeps its shape.
 
 ## Getting a menu file
@@ -38,6 +45,8 @@ Other features:
 1. Vanilla menus are in `Starfield - Interface.ba2`. Extract it with Bethesda
    Archive Extractor or the Creation Kit's Archive2, then look in `Interface/`.
 2. Mod menus ship as loose files under `Data/Interface/…/*.swf`.
+   You can open a menu together with its linked files in one go: the file that
+   none of the others load is opened as the menu.
 3. After exporting, put the edited file back at the same path.
 
 ## Limitations
@@ -45,7 +54,9 @@ Other features:
 - ActionScript isn't run. If menu code positions or styles an element at
   runtime, that overrides what you set here. Most list text is filled in by code.
 - Text previews use a stand-in font. Starfield's fonts load from `fonts_*.swf` in game.
-- Assets imported from other files show as grey placeholders.
+- Parts that come from linked files you haven't added show as grey,
+  labelled placeholders. That includes elements placed by ActionScript class
+  name, such as a widget defined in another file.
 - LZMA-compressed (`ZWS`) files have to be resaved uncompressed or with zlib
   first, for example with JPEXS FFDec.
 - Editing a shared symbol, shape or text field changes every place it's used.
