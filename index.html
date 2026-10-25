@@ -1,0 +1,1163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Starfield Menu Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: three-pane editor (layers | canvas | inspector) that stacks to one column on phones.
+   One committed dark look, like a game UI workbench; Starfield's four-colour stripe is the only flourish. */
+:root {
+  --bg: #0c0f13;
+  --panel: #13171d;
+  --panel-2: #1a1f27;
+  --line: #262d37;
+  --fg: #e4e8ec;
+  --muted: #8a94a0;
+  --faint: #5b6470;
+  --accent: #e8802c;
+  --accent-ink: #1a0f05;
+  --select: #4fb0e8;
+  --danger: #e2574c;
+  --ok: #6cc28a;
+  --canvas: #090b0e;
+  --s-red: #c8372d; --s-orange: #e8802c; --s-yellow: #f0b93a; --s-blue: #3d8fd1;
+  --f-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 13px; overflow: hidden; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel); }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--select); outline-offset: 1px; }
+
+.app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
+.bar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.stripe { display: grid; grid-template-columns: repeat(4, 5px); gap: 2px; height: 22px; transform: skewX(-18deg); }
+.stripe i:nth-child(1) { background: var(--s-red); } .stripe i:nth-child(2) { background: var(--s-orange); }
+.stripe i:nth-child(3) { background: var(--s-yellow); } .stripe i:nth-child(4) { background: var(--s-blue); }
+.brand b { font-family: var(--f-display); font-weight: 600; font-size: 19px; letter-spacing: .06em; text-transform: uppercase; }
+.file { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.file .name { font-family: var(--f-mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip { font-family: var(--f-display); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 8px; border-radius: 3px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); white-space: nowrap; }
+.chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.btn, button.btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 4px;
+  background: var(--panel-2); border: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none;
+}
+.btn:hover:not(:disabled) { border-color: var(--faint); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn.sm { height: 26px; padding: 0 8px; font-size: 12px; }
+.btn.icon { width: 30px; padding: 0; justify-content: center; }
+kbd { font-family: var(--f-mono); font-size: 11px; padding: 0 4px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; color: var(--muted); }
+
+.work { display: grid; grid-template-columns: 270px minmax(0, 1fr) 290px; min-height: 0; }
+.pane { background: var(--panel); min-height: 0; display: flex; flex-direction: column; }
+.left { border-right: 1px solid var(--line); }
+.right { border-left: 1px solid var(--line); overflow: auto; }
+.pane-h { display: flex; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.tab { background: none; border: 0; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-family: var(--f-display); font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.tab[aria-selected="true"] { color: var(--fg); background: var(--panel-2); }
+.search { margin: 8px 10px 4px; height: 28px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); }
+.tree { flex: 1; overflow: auto; padding: 4px 0 12px; min-height: 120px; }
+.row { display: flex; align-items: center; gap: 6px; height: 26px; padding-right: 8px; cursor: pointer; white-space: nowrap; border-left: 2px solid transparent; }
+.row:hover { background: var(--panel-2); }
+.row.sel { background: color-mix(in srgb, var(--select) 16%, transparent); border-left-color: var(--select); }
+.row.scope > .nm { color: var(--accent); }
+.row.hid > .nm { color: var(--faint); text-decoration: line-through; }
+.row .tw { width: 14px; flex: none; color: var(--faint); text-align: center; font-size: 10px; }
+.row .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row .nm.anon { color: var(--muted); font-style: italic; }
+.row .ty { margin-left: auto; font-family: var(--f-mono); font-size: 10px; color: var(--faint); flex: none; }
+.sym { padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; display: grid; gap: 2px; }
+.sym:hover { background: var(--panel-2); }
+.sym.cur { border-left: 2px solid var(--accent); padding-left: 10px; }
+.sym b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sym span { font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
+.help { border-top: 1px solid var(--line); padding: 10px 12px; color: var(--muted); line-height: 1.5; max-height: 45%; overflow: auto; }
+.help summary { cursor: pointer; color: var(--fg); font-family: var(--f-display); font-size: 14px; letter-spacing: .06em; text-transform: uppercase; }
+.help ol { padding-left: 18px; margin: 8px 0; display: grid; gap: 6px; }
+.help code { font-family: var(--f-mono); font-size: 11.5px; color: var(--fg); overflow-wrap: anywhere; }
+
+.center { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+.crumbs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); min-height: 40px; }
+.crumb { background: none; border: 0; padding: 2px 4px; cursor: pointer; color: var(--muted); border-radius: 3px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumb:hover { color: var(--fg); background: var(--panel-2); }
+.crumb:last-of-type { color: var(--fg); }
+.sep { color: var(--faint); }
+.frames { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.frames select, .viewbar select { height: 26px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); padding: 0 6px; max-width: 200px; }
+.lbl { font-family: var(--f-display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-size: 12px; }
+.viewport { user-select: none; -webkit-user-select: none; position: relative; overflow: hidden; background: var(--canvas); touch-action: none; min-height: 0; }
+.viewport canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.viewport.pan { cursor: grab; } .viewport.panning { cursor: grabbing; }
+.drop { position: absolute; inset: 12px; border: 2px dashed var(--accent); border-radius: 8px; display: grid; place-items: center; font-family: var(--f-display); font-size: 22px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); background: color-mix(in srgb, var(--canvas) 80%, transparent); pointer-events: none; }
+.viewbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 12px; background: var(--panel); border-top: 1px solid var(--line); }
+.zoom { font-family: var(--f-mono); min-width: 52px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--muted); white-space: nowrap; }
+.check input { accent-color: var(--accent); }
+.hint { color: var(--faint); margin-left: auto; white-space: nowrap; }
+
+.insp { padding: 14px; display: grid; gap: 16px; align-content: start; }
+.insp h2 { margin: 0; font-family: var(--f-display); font-weight: 600; font-size: 20px; letter-spacing: .03em; overflow-wrap: anywhere; text-wrap: balance; }
+.insp h3 { margin: 0 0 8px; font-family: var(--f-display); font-weight: 500; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.field { display: grid; gap: 3px; }
+.field label { font-family: var(--f-display); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.field input { height: 30px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); padding: 0 8px; font-family: var(--f-mono); font-variant-numeric: tabular-nums; width: 100%; min-width: 0; }
+.field input:focus { border-color: var(--select); outline: none; }
+.note { padding: 8px 10px; border-radius: 4px; background: var(--panel-2); border-left: 3px solid var(--faint); color: var(--muted); line-height: 1.45; }
+.note.warn { border-left-color: var(--s-yellow); }
+.note.info { border-left-color: var(--select); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-family: var(--f-mono); font-size: 12px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+.field textarea, .field select { border-radius: 4px; border: 1px solid var(--line); background: var(--bg); padding: 6px 8px; width: 100%; min-width: 0; }
+.field select { height: 30px; padding: 0 6px; }
+.field textarea { font-family: var(--f-mono); font-size: 12px; min-height: 64px; resize: vertical; line-height: 1.4; }
+.field textarea:focus, .field select:focus { border-color: var(--select); outline: none; }
+.field.wide { grid-column: 1 / -1; }
+.color { display: flex; gap: 6px; align-items: center; }
+.color input[type=color] { flex: none; width: 34px; height: 30px; padding: 2px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; }
+.color input:not([type=color]) { flex: 1; }
+.swatches { display: grid; gap: 6px; }
+.swatch { display: grid; grid-template-columns: 34px 1fr 72px; gap: 6px; align-items: center; }
+.swatch input[type=color] { width: 34px; height: 28px; padding: 2px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; }
+.swatch span { font-family: var(--f-mono); font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swatch input:not([type=color]) { height: 28px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); padding: 0 6px; font-family: var(--f-mono); width: 100%; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.empty { color: var(--muted); line-height: 1.5; }
+
+#toast { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: grid; gap: 6px; z-index: 20; width: min(520px, calc(100% - 32px)); pointer-events: none; }
+.toast { padding: 10px 14px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--select); box-shadow: 0 6px 24px rgba(0,0,0,.45); line-height: 1.4; }
+.toast.err { border-left-color: var(--danger); } .toast.ok { border-left-color: var(--ok); }
+
+@media (max-width: 980px) {
+  body { overflow: auto; }
+  .app { height: auto; min-height: 100%; }
+  .work { grid-template-columns: minmax(0, 1fr); }
+  .center { order: 1; height: 72vh; min-height: 420px; }
+  .right { order: 2; border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .left { order: 3; border-right: 0; border-top: 1px solid var(--line); }
+  .tree { max-height: 50vh; }
+  .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="bar">
+    <div class="brand"><span class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i></span><b>Menu Editor</b></div>
+    <div class="file"><span class="name" id="fileName">No file</span><span class="chip" id="editCount">No edits</span></div>
+    <div class="actions">
+      <label class="btn" for="fileInput">Open .swf</label>
+      <input type="file" id="fileInput" accept=".swf,.gfx" hidden>
+      <button class="btn" id="sampleBtn" type="button">Sample</button>
+      <button class="btn" id="undoBtn" type="button" title="Undo (Ctrl+Z)">Undo</button>
+      <button class="btn" id="redoBtn" type="button" title="Redo (Ctrl+Shift+Z)">Redo</button>
+      <button class="btn primary" id="exportBtn" type="button">Export</button>
+    </div>
+  </header>
+
+  <main class="work">
+    <aside class="pane left">
+      <div class="pane-h" role="tablist">
+        <button class="tab" id="tabLayers" role="tab" aria-selected="true" type="button">Layers</button>
+        <button class="tab" id="tabSymbols" role="tab" aria-selected="false" type="button">Symbols</button>
+      </div>
+      <input class="search" id="search" type="search" placeholder="Filter by name" aria-label="Filter by name">
+      <div class="tree" id="tree"></div>
+      <details class="help" id="help">
+        <summary>Getting a menu file</summary>
+        <ol>
+          <li>Vanilla menus live in <code>Starfield - Interface.ba2</code>. Extract it with Bethesda Archive Extractor or the Creation Kit's Archive2, and look in <code>Interface/</code>.</li>
+          <li>Mod menus (like a quick loot mod) ship as loose files: <code>Data/Interface/…/*.swf</code>.</li>
+          <li>Open the .swf here, click an element, then drag it, resize it with the handles, or type values in the inspector. The inspector also sets opacity and tint, recolours shapes, and edits text fields (wording, colour, size, alignment, box size).</li>
+          <li>Export saves a .zip with the edited .swf under the same name. Put it back at the same path under <code>Data/Interface/</code>.</li>
+        </ol>
+        <p>Positions set by ActionScript at runtime override the layout saved here. If an element snaps back in game, its code moves it.</p>
+      </details>
+    </aside>
+
+    <section class="center">
+      <div class="crumbs" id="crumbs"></div>
+      <div class="viewport" id="viewport">
+        <canvas id="cv"></canvas>
+        <div class="drop" id="drop" hidden>Drop .swf to open</div>
+      </div>
+      <div class="viewbar">
+        <button class="btn sm icon" id="zoomOut" type="button" aria-label="Zoom out">−</button>
+        <span class="zoom" id="zoomLbl">100%</span>
+        <button class="btn sm icon" id="zoomIn" type="button" aria-label="Zoom in">+</button>
+        <button class="btn sm" id="fitBtn" type="button">Fit</button>
+        <button class="btn sm" id="zoom100" type="button">1:1</button>
+        <select id="backdrop" aria-label="Backdrop">
+          <option value="scene">Scene backdrop</option>
+          <option value="light">Light backdrop</option>
+          <option value="checker">Checkerboard</option>
+        </select>
+        <label class="check"><input type="checkbox" id="allKeys" checked> Edit all keyframes</label>
+        <label class="check"><input type="checkbox" id="showBounds"> Outlines</label>
+        <span class="hint">Double-click to enter a symbol · <kbd>Esc</kbd> back · arrows nudge</span>
+      </div>
+    </section>
+
+    <aside class="pane right"><div class="insp" id="insp"></div></aside>
+  </main>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="swf-core.js"></script>
+<script src="sample.js"></script>
+<script>
+(() => {
+'use strict';
+const M = SWF.M, I = M.I();
+const MENU_FONT = '"Barlow", "Arial", sans-serif';
+const $ = (id) => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d'), vp = $('viewport');
+const hitCtx = document.createElement('canvas').getContext('2d');
+const downloadsP = (window.claude && window.claude.use) ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
+
+const S = {
+  movie: null, fileName: '', mode: { kind: 'stage' }, frames: new Map(), scope: [], sel: null, hover: null,
+  view: { z: 0.5, x: 0, y: 0 }, undo: [], redo: [], allKeys: true, showBounds: false, backdrop: 'scene',
+  tree: [], hits: [], orig: new WeakMap(), uses: new Map(), images: new Map(), shapes: new Map(),
+  expanded: new Set(), tab: 'layers', filter: '', drag: null, space: false, lastNudge: null,
+};
+
+// ---------- helpers ----------
+const rgba = (c) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${(c[3] / 255).toFixed(3)})`;
+const dm = (m) => new DOMMatrix([m[0], m[1], m[2], m[3], m[4], m[5]]);
+const startsWith = (a, p) => p.length <= a.length && p.every((v, i) => a[i] === v);
+const samePath = (a, b) => !!a && !!b && a.length === b.length && startsWith(a, b);
+const isPlace = (t) => t.code === 4 || t.code === 26 || t.code === 70;
+const union = (a, b) => !a ? b : !b ? a : { xmin: Math.min(a.xmin, b.xmin), xmax: Math.max(a.xmax, b.xmax), ymin: Math.min(a.ymin, b.ymin), ymax: Math.max(a.ymax, b.ymax) };
+const fmt = (v, d = 2) => { const s = (Math.round(v * Math.pow(10, d)) / Math.pow(10, d)).toFixed(d); return s.includes('.') ? s.replace(/\.?0+$/, '') : s; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function walkTags(tags, fn) { for (const t of tags) { fn(t); if (t.children) walkTags(t.children, fn); } }
+function safePlace(t) { try { return SWF.placeInfo(t); } catch (e) { return null; } }
+function className(id) { return S.movie.names.get(id) || ''; }
+function charLabel(ch) {
+  if (!ch) return 'missing';
+  return ({ sprite: 'Symbol', shape: 'Shape', text: 'Text field', stext: 'Static text', bitmap: 'Bitmap', import: 'Imported', font: 'Font', other: ch.kind || 'Other', missing: 'Missing' })[ch.type] || ch.type;
+}
+function nodeName(n) { return n.entry.name || ''; }
+function toast(msg, kind) {
+  const el = document.createElement('div'); el.className = 'toast' + (kind ? ' ' + kind : ''); el.textContent = msg;
+  $('toast').appendChild(el); setTimeout(() => el.remove(), kind === 'err' ? 7000 : 3500);
+}
+
+// ---------- loading ----------
+async function openBytes(bytes, name) {
+  try { const m = await SWF.load(bytes); setMovie(m, name); }
+  catch (e) { toast('Could not open ' + name + ': ' + e.message, 'err'); }
+}
+function setMovie(m, name) {
+  Object.assign(S, { movie: m, fileName: name, mode: { kind: 'stage' }, frames: new Map(), scope: [], sel: null, hover: null,
+    undo: [], redo: [], orig: new WeakMap(), uses: new Map(), images: new Map(), shapes: new Map(), expanded: new Set() });
+  walkTags(m.tags, (t) => {
+    S.orig.set(t, { code: t.code, body: t.body });
+    if (isPlace(t)) { const po = safePlace(t); if (po && po.hasChar) S.uses.set(po.charId, (S.uses.get(po.charId) || 0) + 1); }
+  });
+  rebuild();
+  if (!S.tree.length) {
+    // Menus built by ActionScript leave the stage empty; open the main symbol instead.
+    const base = name.replace(/\.(swf|gfx)$/i, '').toLowerCase();
+    const sprites = [...m.dict.values()].filter((c) => c.type === 'sprite');
+    const pick = sprites.find((c) => className(c.id).toLowerCase().split('.').pop() === base)
+      || sprites.filter((c) => className(c.id)).sort((a, b) => b.tag.children.length - a.tag.children.length)[0]
+      || sprites.sort((a, b) => b.tag.children.length - a.tag.children.length)[0];
+    if (pick) { S.mode = { kind: 'symbol', id: pick.id }; rebuild(); toast('The stage is empty (the menu is built by code), so the symbol ' + (className(pick.id) || '#' + pick.id) + ' is open. Pick others under Symbols.'); }
+  }
+  for (const w of m.warnings) toast(w);
+  if (m.imports.length) toast(m.imports.length + ' element(s) come from other files (' + [...new Set(m.imports.map((i) => i.url))].join(', ') + ') and show as placeholders.');
+  $('fileName').textContent = name;
+  fit(); decodeImages(); updateAll();
+}
+async function decodeImages() {
+  const m = S.movie;
+  for (const ch of m.dict.values()) {
+    if (ch.type !== 'bitmap' || ch.external) continue;
+    try {
+      const d = await SWF.decodeBitmap(ch.tag); if (!d) continue;
+      let canvas;
+      if (d.kind === 'rgba') {
+        canvas = document.createElement('canvas'); canvas.width = d.w; canvas.height = d.h;
+        canvas.getContext('2d').putImageData(new ImageData(d.data, d.w, d.h), 0, 0);
+      } else {
+        const bmp = await createImageBitmap(new Blob([d.bytes], { type: d.mime }));
+        canvas = document.createElement('canvas'); canvas.width = bmp.width; canvas.height = bmp.height;
+        const c2 = canvas.getContext('2d'); c2.drawImage(bmp, 0, 0);
+        if (d.alpha && d.alpha.length >= bmp.width * bmp.height) {
+          const id = c2.getImageData(0, 0, bmp.width, bmp.height);
+          for (let i = 0; i < bmp.width * bmp.height; i++) id.data[i * 4 + 3] = d.alpha[i];
+          c2.putImageData(id, 0, 0);
+        }
+      }
+      if (S.movie !== m) return;
+      S.images.set(ch.id, canvas);
+    } catch (e) { /* undecodable bitmaps render as grey placeholders */ }
+  }
+  if (S.movie === m) { rebuild(); draw(); }
+}
+
+// ---------- display tree ----------
+function rootTags() { return S.mode.kind === 'stage' ? S.movie.tags : S.movie.dict.get(S.mode.id).tag.children; }
+function rootFrames() { return S.mode.kind === 'stage' ? S.movie.frameCount : S.movie.dict.get(S.mode.id).frameCount; }
+function frameOf(key) { return S.frames.get(key) || 1; }
+function rebuild() { if (S.movie) refreshTexts(); S.tree = S.movie ? buildNodes(rootTags(), frameOf(''), [], I, null, 0, null) : []; }
+// Text definitions are parsed once at load; re-read any whose tag was edited or undone.
+const TEXT_OPTIONAL = ['fontId', 'fontClass', 'fontHeight', 'maxLength', 'align', 'leftMargin', 'rightMargin', 'indent', 'leading'];
+function refreshTexts() {
+  for (const ch of S.movie.dict.values()) {
+    if (ch.type !== 'text' || ch.bodyRef === ch.tag.body) continue;
+    for (const k of TEXT_OPTIONAL) delete ch[k];
+    Object.assign(ch, SWF.parseEditText(ch.tag.body), { bodyRef: ch.tag.body });
+  }
+}
+function buildNodes(tags, frame, path, world, cx, lvl, parent) {
+  let entries; try { entries = SWF.displayList(tags, frame); } catch (e) { entries = []; }
+  const out = [];
+  for (const e of entries) {
+    const p = path.concat(e.depth);
+    const ch = S.movie.dict.get(e.charId) || { type: 'missing', id: e.charId };
+    const w = M.mul(world, e.matrix);
+    const n = { path: p, key: p.join('/'), entry: e, char: ch, world: w, parentWorld: world, cx: SWF.cxCompose(cx, e.cx), tags, frame, parent, children: null };
+    if (ch.type === 'sprite' && lvl < 32) { n.spriteFrame = frameOf(n.key); n.children = buildNodes(ch.tag.children, n.spriteFrame, p, w, n.cx, lvl + 1, n); }
+    n.bounds = localBounds(n);
+    out.push(n);
+  }
+  return out;
+}
+function localBounds(n) {
+  const ch = n.char;
+  switch (ch.type) {
+    case 'shape': case 'text': return ch.bounds;
+    case 'stext': return M.boundsOf(ch.matrix, ch.bounds);
+    case 'bitmap': { const im = S.images.get(ch.id); return im ? { xmin: 0, ymin: 0, xmax: im.width * 20, ymax: im.height * 20 } : null; }
+    case 'sprite': { let b = null; for (const c of n.children) if (c.bounds && c.entry.visible !== false) b = union(b, M.boundsOf(c.entry.matrix, c.bounds)); return b; }
+    default: return null;
+  }
+}
+function boxOf(n) { return n.bounds || { xmin: -200, xmax: 200, ymin: -200, ymax: 200 }; }
+function nodeAt(path) {
+  if (!path) return null;
+  let list = S.tree, n = null;
+  for (const d of path) { n = (list || []).find((x) => x.entry.depth === d); if (!n) return null; list = n.children; }
+  return n;
+}
+function scopeNode() { return S.scope.length ? nodeAt(S.scope) : null; }
+function scopeTimeline() {
+  const sn = scopeNode();
+  if (sn) return { tags: sn.char.tag.children, frames: sn.char.frameCount, key: sn.key, symbolId: sn.char.id };
+  return { tags: rootTags(), frames: rootFrames(), key: '', symbolId: S.mode.kind === 'symbol' ? S.mode.id : null };
+}
+
+// ---------- drawing ----------
+function viewCss() { const k = S.view.z / 20; return [k, 0, 0, k, S.view.x, S.view.y]; }
+function viewDev() { const r = devicePixelRatio || 1, k = S.view.z / 20 * r; return [k, 0, 0, k, S.view.x * r, S.view.y * r]; }
+let rafPending = false;
+function draw() { if (!rafPending) { rafPending = true; requestAnimationFrame(render); } }
+function render() {
+  rafPending = false;
+  const r = devicePixelRatio || 1, w = vp.clientWidth, h = vp.clientHeight;
+  if (cv.width !== Math.round(w * r) || cv.height !== Math.round(h * r)) { cv.width = Math.round(w * r); cv.height = Math.round(h * r); }
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!S.movie) return;
+  const V = viewDev();
+  if (S.mode.kind === 'stage') drawBackdrop(V);
+  else drawOrigin(V);
+  S.hits = [];
+  drawList(S.tree, V);
+  drawOverlay(V);
+  $('zoomLbl').textContent = Math.round(S.view.z * 100) + '%';
+}
+function drawBackdrop(V) {
+  const s = S.movie.stage; ctx.save(); ctx.setTransform(...V);
+  const W = s.xmax - s.xmin, H = s.ymax - s.ymin;
+  if (S.backdrop === 'scene') {
+    const g = ctx.createLinearGradient(s.xmin, s.ymin, s.xmax, s.ymax);
+    g.addColorStop(0, '#2b3a4a'); g.addColorStop(0.55, '#4b5560'); g.addColorStop(1, '#6e6150');
+    ctx.fillStyle = g; ctx.fillRect(s.xmin, s.ymin, W, H);
+    const h = ctx.createRadialGradient(s.xmin + W * 0.3, s.ymin + H * 0.7, 0, s.xmin + W * 0.3, s.ymin + H * 0.7, W * 0.5);
+    h.addColorStop(0, 'rgba(255,214,160,.18)'); h.addColorStop(1, 'rgba(255,214,160,0)');
+    ctx.fillStyle = h; ctx.fillRect(s.xmin, s.ymin, W, H);
+  } else if (S.backdrop === 'light') { ctx.fillStyle = '#d9dcdf'; ctx.fillRect(s.xmin, s.ymin, W, H); }
+  else {
+    ctx.fillStyle = '#3a3f46'; ctx.fillRect(s.xmin, s.ymin, W, H); ctx.fillStyle = '#2c3036';
+    const c = 640; for (let y = s.ymin, j = 0; y < s.ymax; y += c, j++) for (let x = s.xmin + (j % 2) * c; x < s.xmax; x += 2 * c) ctx.fillRect(x, y, Math.min(c, s.xmax - x), Math.min(c, s.ymax - y));
+  }
+  ctx.restore();
+}
+function drawOrigin(V) {
+  const o = M.apply(V, 0, 0), r = devicePixelRatio || 1;
+  ctx.save(); ctx.strokeStyle = 'rgba(232,128,44,.6)'; ctx.lineWidth = r;
+  ctx.beginPath(); ctx.moveTo(o[0] - 12 * r, o[1]); ctx.lineTo(o[0] + 12 * r, o[1]); ctx.moveTo(o[0], o[1] - 12 * r); ctx.lineTo(o[0], o[1] + 12 * r); ctx.stroke(); ctx.restore();
+}
+function drawList(nodes, V) {
+  const masks = [];
+  for (const n of nodes) {
+    while (masks.length && n.entry.depth > masks[masks.length - 1]) { ctx.restore(); masks.pop(); }
+    if (n.entry.clipDepth) {
+      const p = new Path2D(); addMaskPath(n, p);
+      ctx.save(); ctx.setTransform(...V); ctx.clip(p, 'evenodd'); masks.push(n.entry.clipDepth);
+      S.hits.push(Object.assign(n, { isMask: true }));
+      continue;
+    }
+    if (n.entry.visible === false) continue;
+    drawNode(n, V);
+  }
+  while (masks.length) { ctx.restore(); masks.pop(); }
+}
+function addMaskPath(n, p) {
+  if (n.char.type === 'shape') { const d = shapeData(n.char); if (d.union) p.addPath(d.union, dm(n.world)); }
+  else if (n.char.type === 'text') { const b = n.char.bounds; const r = new Path2D(); r.rect(b.xmin, b.ymin, b.xmax - b.xmin, b.ymax - b.ymin); p.addPath(r, dm(n.world)); }
+  else if (n.children) for (const c of n.children) addMaskPath(c, p);
+}
+function drawNode(n, V) {
+  if (n.children) { drawList(n.children, V); return; }
+  const W = M.mul(V, n.world);
+  const inScope = startsWith(n.path, S.scope);
+  const det = Math.abs(W[0] * W[3] - W[1] * W[2]); const px = det ? 1 / Math.sqrt(det) : 1;
+  ctx.save(); ctx.setTransform(...W); ctx.globalAlpha = inScope ? 1 : 0.28;
+  try {
+    switch (n.char.type) {
+      case 'shape': drawShape(n, px); break;
+      case 'text': drawText(n, px); break;
+      case 'bitmap': {
+        const im = S.images.get(n.char.id);
+        if (im) { ctx.globalAlpha *= n.cx ? n.cx.m[3] / 256 : 1; ctx.drawImage(im, 0, 0, im.width * 20, im.height * 20); }
+        else placeholder(n, px, 'bitmap #' + n.char.id);
+        break;
+      }
+      case 'stext': placeholder(n, px, 'static text'); break;
+      case 'import': placeholder(n, px, n.char.name); break;
+      default: placeholder(n, px, charLabel(n.char) + ' #' + n.char.id);
+    }
+    if (S.showBounds && n.bounds && n.char.type !== 'text') dashed(n.bounds, px, 'rgba(79,176,232,.55)');
+  } finally { ctx.restore(); }
+  S.hits.push(n);
+}
+function shapeData(ch) {
+  let d = S.shapes.get(ch.id);
+  if (d && d.body === ch.tag.body) return d;
+  try {
+    const s = SWF.parseShape(ch.tag); const un = new Path2D();
+    const groups = s.groups.map((g) => ({
+      fills: g.fillPaths.map((fp) => { const p = contoursPath(fp.contours); un.addPath(p); return { style: fp.style, path: p, empty: !fp.contours.length }; }),
+      lines: g.linePaths.map((lp) => ({ style: lp.style, path: edgesPath(lp.edges), empty: !lp.edges.length })),
+    }));
+    d = { groups, union: un, hasFill: groups.some((g) => g.fills.some((f) => !f.empty)), hasAlpha: s.hasAlpha };
+  } catch (e) { d = { error: e.message, groups: [] }; }
+  d.body = ch.tag.body; S.shapes.set(ch.id, d); return d;
+}
+function contoursPath(contours) {
+  const p = new Path2D();
+  for (const c of contours) {
+    p.moveTo(c[0].x0, c[0].y0);
+    for (const e of c) e.curve ? p.quadraticCurveTo(e.cx, e.cy, e.x1, e.y1) : p.lineTo(e.x1, e.y1);
+    p.closePath();
+  }
+  return p;
+}
+function edgesPath(edges) {
+  const p = new Path2D(); let lx = NaN, ly = NaN;
+  for (const e of edges) {
+    if (e.x0 !== lx || e.y0 !== ly) p.moveTo(e.x0, e.y0);
+    e.curve ? p.quadraticCurveTo(e.cx, e.cy, e.x1, e.y1) : p.lineTo(e.x1, e.y1);
+    lx = e.x1; ly = e.y1;
+  }
+  return p;
+}
+function drawShape(n, px) {
+  const d = shapeData(n.char);
+  if (d.error) { placeholder(n, px, 'shape #' + n.char.id); return; }
+  const cx = n.cx;
+  for (const g of d.groups) {
+    for (const f of g.fills) if (!f.empty) fillWith(f.path, f.style, cx);
+    for (const l of g.lines) if (!l.empty) {
+      ctx.lineWidth = Math.max(l.style.width, px); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.strokeStyle = rgba(SWF.cxApply(cx, l.style.color)); ctx.stroke(l.path);
+    }
+  }
+}
+function fillWith(path, st, cx) {
+  if (st.type === 0) { ctx.fillStyle = rgba(SWF.cxApply(cx, st.color)); ctx.fill(path, 'evenodd'); return; }
+  if (st.stops) {
+    const gm = st.matrix;
+    const g = st.type === 0x10 ? ctx.createLinearGradient(-16384, 0, 16384, 0) : ctx.createRadialGradient((st.focal || 0) * 16384, 0, 0, 0, 0, 16384);
+    for (const s of st.stops) g.addColorStop(s.ratio / 255, rgba(SWF.cxApply(cx, s.color)));
+    const p = new Path2D(); p.addPath(path, dm(M.inv(gm)));
+    ctx.save(); ctx.transform(...gm); ctx.fillStyle = g; ctx.fill(p, 'evenodd'); ctx.restore(); return;
+  }
+  const im = S.images.get(st.bitmapId);
+  if (!im) { ctx.fillStyle = 'rgba(140,148,160,.35)'; ctx.fill(path, 'evenodd'); return; }
+  const pat = ctx.createPattern(im, st.repeat ? 'repeat' : 'no-repeat'); pat.setTransform(dm(st.matrix));
+  ctx.save(); ctx.imageSmoothingEnabled = st.smooth; if (cx) ctx.globalAlpha *= Math.max(0, Math.min(1, cx.m[3] / 256));
+  ctx.fillStyle = pat; ctx.fill(path, 'evenodd'); ctx.restore();
+}
+function htmlToText(s) {
+  return s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\n$/, '');
+}
+function drawText(n, px) {
+  const t = n.char, b = t.bounds, size = t.fontHeight || 240;
+  const text = t.html ? htmlToText(t.text || '') : (t.text || '');
+  ctx.save();
+  ctx.beginPath(); ctx.rect(b.xmin, b.ymin, b.xmax - b.xmin, b.ymax - b.ymin);
+  if (t.border) { ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = px; ctx.stroke(); }
+  ctx.clip();
+  ctx.font = size + 'px ' + MENU_FONT; ctx.fillStyle = rgba(SWF.cxApply(n.cx, t.color)); ctx.textBaseline = 'alphabetic';
+  const left = b.xmin + 40 + (t.leftMargin || 0), right = b.xmax - 40 - (t.rightMargin || 0);
+  ctx.textAlign = t.align === 1 ? 'right' : t.align === 2 ? 'center' : 'left';
+  const x = t.align === 1 ? right : t.align === 2 ? (left + right) / 2 : left;
+  let lines = text.split(/\r\n|\r|\n/);
+  if (!t.multiline) lines = [lines.join(' ')];
+  if (t.wordWrap) lines = lines.flatMap((ln) => wrap(ln, right - left));
+  const lh = size * 1.15 + (t.leading || 0); let y = b.ymin + 40 + size * 0.86;
+  for (const ln of lines) { ctx.fillText(ln, x, y); y += lh; if (y - size > b.ymax) break; }
+  ctx.restore();
+  if (!text.trim() || S.showBounds) {
+    dashed(b, px, 'rgba(240,185,58,.55)');
+    if (!text.trim()) label(n.entry.name || t.variable || 'text field', b.xmin + 3 * px * 20 / 20, b.ymin, px, 'rgba(240,185,58,.85)');
+  }
+}
+function wrap(line, width) {
+  const words = line.split(/(\s+)/); const out = []; let cur = '';
+  for (const w of words) { const next = cur + w; if (cur && ctx.measureText(next).width > width) { out.push(cur.trimEnd()); cur = w.trimStart(); } else cur = next; }
+  out.push(cur); return out;
+}
+function dashed(b, px, color) {
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = px; ctx.setLineDash([4 * px, 3 * px]);
+  ctx.strokeRect(b.xmin, b.ymin, b.xmax - b.xmin, b.ymax - b.ymin); ctx.restore();
+}
+function label(text, x, y, px, color) {
+  ctx.save(); ctx.font = (11 * px) + 'px "IBM Plex Mono", monospace'; ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText(text, x + 3 * px, y + 3 * px); ctx.restore();
+}
+function placeholder(n, px, text) {
+  const b = boxOf(n);
+  ctx.save(); ctx.fillStyle = 'rgba(140,148,160,.12)'; ctx.fillRect(b.xmin, b.ymin, b.xmax - b.xmin, b.ymax - b.ymin); ctx.restore();
+  dashed(b, px, 'rgba(160,168,180,.6)');
+  label(text, b.xmin, b.ymin, px, 'rgba(200,206,214,.85)');
+}
+
+// ---------- overlay: selection & handles ----------
+const HANDLES = [[0, 0], [0.5, 0], [1, 0], [1, 0.5], [1, 1], [0.5, 1], [0, 1], [0, 0.5]];
+function corners(n, Vm) {
+  const b = boxOf(n), W = M.mul(Vm, n.world);
+  return [[b.xmin, b.ymin], [b.xmax, b.ymin], [b.xmax, b.ymax], [b.xmin, b.ymax]].map((p) => M.apply(W, p[0], p[1]));
+}
+function handlePoints(n, Vm, r) {
+  const b = boxOf(n), W = M.mul(Vm, n.world);
+  const pts = HANDLES.map(([hx, hy]) => M.apply(W, b.xmin + hx * (b.xmax - b.xmin), b.ymin + hy * (b.ymax - b.ymin)));
+  const c = M.apply(W, (b.xmin + b.xmax) / 2, (b.ymin + b.ymax) / 2);
+  const top = pts[1]; let dx = top[0] - c[0], dy = top[1] - c[1]; const l = Math.hypot(dx, dy) || 1;
+  if (l < 1) { dx = 0; dy = -1; } else { dx /= l; dy /= l; }
+  pts.push([top[0] + dx * 26 * r, top[1] + dy * 26 * r]);
+  return pts;
+}
+function drawOverlay(V) {
+  const r = devicePixelRatio || 1;
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (S.mode.kind === 'stage') {
+    const s = S.movie.stage, a = M.apply(V, s.xmin, s.ymin), b = M.apply(V, s.xmax, s.ymax);
+    ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = r; ctx.strokeRect(a[0] + .5, a[1] + .5, b[0] - a[0], b[1] - a[1]);
+  }
+  const sn = scopeNode();
+  if (sn) poly(corners(sn, V), 'rgba(232,128,44,.55)', r, [6 * r, 4 * r]);
+  const hv = nodeAt(S.hover);
+  if (hv && !samePath(S.hover, S.sel)) poly(corners(hv, V), 'rgba(79,176,232,.6)', r);
+  const sel = nodeAt(S.sel);
+  if (sel) {
+    poly(corners(sel, V), '#4fb0e8', 1.5 * r, sel.entry.visible === false ? [5 * r, 4 * r] : null);
+    if (sel.entry.visible !== false) {
+      const hp = handlePoints(sel, V, r);
+      ctx.strokeStyle = '#4fb0e8'; ctx.lineWidth = r; ctx.beginPath(); ctx.moveTo(hp[1][0], hp[1][1]); ctx.lineTo(hp[8][0], hp[8][1]); ctx.stroke();
+      hp.forEach((p, i) => {
+        ctx.beginPath();
+        if (i === 8) ctx.arc(p[0], p[1], 5 * r, 0, Math.PI * 2); else ctx.rect(p[0] - 4 * r, p[1] - 4 * r, 8 * r, 8 * r);
+        ctx.fillStyle = '#0c0f13'; ctx.fill(); ctx.strokeStyle = '#4fb0e8'; ctx.lineWidth = 1.5 * r; ctx.stroke();
+      });
+    }
+  }
+  ctx.restore();
+}
+function poly(pts, color, w, dash) {
+  ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath();
+  ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash(dash || []); ctx.stroke(); ctx.setLineDash([]);
+}
+
+// ---------- hit testing ----------
+function hitAt(sx, sy) {
+  const Vm = viewCss();
+  for (let i = S.hits.length - 1; i >= 0; i--) {
+    const n = S.hits[i]; if (n.isMask) continue;
+    const L = M.apply(M.inv(M.mul(Vm, n.world)), sx, sy), b = boxOf(n);
+    if (L[0] < b.xmin || L[0] > b.xmax || L[1] < b.ymin || L[1] > b.ymax) continue;
+    if (n.char.type === 'shape') { const d = shapeData(n.char); if (d.hasFill && !hitCtx.isPointInPath(d.union, L[0], L[1], 'evenodd')) continue; }
+    return n;
+  }
+  return null;
+}
+function insideBox(n, sx, sy) {
+  const L = M.apply(M.inv(M.mul(viewCss(), n.world)), sx, sy), b = boxOf(n);
+  return L[0] >= b.xmin && L[0] <= b.xmax && L[1] >= b.ymin && L[1] <= b.ymax;
+}
+function handleAt(n, sx, sy, touch) {
+  if (n.entry.visible === false) return -1;
+  const hp = handlePoints(n, viewCss(), 1), rad = touch ? 14 : 8;
+  for (let i = hp.length - 1; i >= 0; i--) if (Math.hypot(hp[i][0] - sx, hp[i][1] - sy) <= rad) return i;
+  return -1;
+}
+function targetFor(leaf) {
+  let scope = S.scope;
+  if (!startsWith(leaf.path, scope)) { let k = 0; while (k < scope.length && k < leaf.path.length - 1 && scope[k] === leaf.path[k]) k++; scope = scope.slice(0, k); }
+  return { scope, sel: leaf.path.slice(0, scope.length + 1) };
+}
+
+// ---------- editing ----------
+function matrixTagsFor(e) {
+  const target = e.matrixTag || e.placeTag; const set = new Set([target]);
+  if (S.allKeys) for (const t of e.life.matrixTags) set.add(t);
+  return { target, tags: [...set] };
+}
+function beginMatrixEdit(n, label) {
+  const e = n.entry; const { tags } = matrixTagsFor(e);
+  const snaps = tags.map((t) => { const po = SWF.placeInfo(t); return { tag: t, code: t.code, body: t.body, m: po.hasMatrix ? po.matrix.slice() : I.slice() }; });
+  return { label, key: n.key, path: n.path.slice(), m0: e.matrix.slice(), snaps, changed: false };
+}
+function applyMatrix(ed, newM) {
+  const D = M.mul(newM, M.inv(ed.m0));
+  for (const s of ed.snaps) {
+    s.tag.code = s.code; s.tag.body = s.body; s.tag.po = null;
+    SWF.setPlaceMatrix(s.tag, M.mul(D, s.m));
+  }
+  ed.changed = true; rebuild(); draw();
+}
+function endEdit(ed, merge) {
+  if (!ed || !ed.changed) return;
+  if (!merge) S.undo.push({ label: ed.label, snaps: ed.snaps.map((s) => ({ tag: s.tag, code: s.code, body: s.body })) });
+  S.redo = []; updateAll();
+}
+function commitTags(label, tags, fn) {
+  const snaps = [...new Set(tags)].map((t) => ({ tag: t, code: t.code, body: t.body }));
+  try { fn(); } catch (e) { snaps.forEach((s) => { s.tag.code = s.code; s.tag.body = s.body; s.tag.po = null; }); toast(e.message, 'err'); return; }
+  S.undo.push({ label, snaps }); S.redo = []; rebuild(); updateAll();
+}
+function swapHistory(from, to) {
+  const rec = from.pop(); if (!rec) return;
+  to.push({ label: rec.label, snaps: rec.snaps.map((s) => ({ tag: s.tag, code: s.tag.code, body: s.tag.body })) });
+  for (const s of rec.snaps) { s.tag.code = s.code; s.tag.body = s.body; s.tag.po = null; }
+  S.lastNudge = null; rebuild(); updateAll(); toast((from === S.undo ? 'Undid ' : 'Redid ') + rec.label.toLowerCase());
+}
+function setMatrixNow(n, newM, label) { const ed = beginMatrixEdit(n, label); applyMatrix(ed, newM); endEdit(ed); }
+function nudge(dx, dy) {
+  const n = nodeAt(S.sel); if (!n) return;
+  const now = Date.now(); const merge = S.lastNudge && S.lastNudge.key === n.key && now - S.lastNudge.t < 800;
+  const ed = beginMatrixEdit(n, 'Nudge'); const m = ed.m0.slice(); m[4] += dx * 20; m[5] += dy * 20;
+  applyMatrix(ed, m); endEdit(ed, merge); S.lastNudge = { key: n.key, t: now };
+}
+function setVisible(n, v) {
+  const e = n.entry; const tags = [e.placeTag]; if (e.visibleTag && e.visibleTag !== e.placeTag) tags.push(e.visibleTag);
+  commitTags(v ? 'Show element' : 'Hide element', tags, () => {
+    SWF.setPlaceVisible(e.placeTag, v);
+    if (e.visibleTag && e.visibleTag !== e.placeTag) SWF.setPlaceVisible(e.visibleTag, v);
+  });
+}
+function resetNode(n) {
+  const e = n.entry; const tags = new Set([e.placeTag, ...e.life.matrixTags, ...e.life.cxTags]); if (e.visibleTag) tags.add(e.visibleTag);
+  const list = [...tags].filter((t) => { const o = S.orig.get(t); return o && (o.body !== t.body || o.code !== t.code); });
+  if (!list.length) { toast('This element has no changes'); return; }
+  commitTags('Reset element', list, () => { for (const t of list) { const o = S.orig.get(t); t.code = o.code; t.body = o.body; t.po = null; } });
+}
+
+// ---------- pointer ----------
+function pt(ev) { const r = vp.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; }
+vp.addEventListener('pointerdown', (ev) => {
+  if (!S.movie) return;
+  ev.preventDefault(); vp.setPointerCapture(ev.pointerId);
+  const [x, y] = pt(ev); const touch = ev.pointerType !== 'mouse';
+  if (ev.button === 1 || S.space || ev.button === 2) { S.drag = { mode: 'pan', sx: x, sy: y, vx: S.view.x, vy: S.view.y }; vp.classList.add('panning'); return; }
+  const sel = nodeAt(S.sel);
+  if (sel) {
+    const h = handleAt(sel, x, y, touch);
+    if (h >= 0) { startTransform(sel, h === 8 ? 'rotate' : 'scale', h, x, y); return; }
+  }
+  const hit = hitAt(x, y);
+  let target = null;
+  if (sel && insideBox(sel, x, y) && (!hit || startsWith(hit.path, S.sel))) target = sel;
+  else if (hit) { const t = targetFor(hit); S.scope = t.scope; S.sel = t.sel; target = nodeAt(S.sel); revealSel(); updateAll(); }
+  if (target) { S.drag = { mode: 'pending', node: target, sx: x, sy: y }; return; }
+  if (S.sel) { S.sel = null; updateAll(); }
+  S.drag = { mode: 'pan', sx: x, sy: y, vx: S.view.x, vy: S.view.y };
+});
+function startTransform(n, mode, h, x, y) {
+  const ed = beginMatrixEdit(n, mode === 'rotate' ? 'Rotate' : mode === 'move' ? 'Move' : 'Resize');
+  const Vm = viewCss();
+  const parentS = M.mul(Vm, n.parentWorld);
+  S.drag = { mode, ed, h, sx: x, sy: y, b: boxOf(n), parentInv: M.inv(parentS), worldInv: M.inv(M.mul(Vm, n.world)) };
+  if (mode === 'rotate') {
+    const b = S.drag.b; const c = M.apply(ed.m0, (b.xmin + b.xmax) / 2, (b.ymin + b.ymax) / 2);
+    const p = M.apply(S.drag.parentInv, x, y);
+    Object.assign(S.drag, { c, a0: Math.atan2(p[1] - c[1], p[0] - c[0]) });
+  }
+}
+vp.addEventListener('pointermove', (ev) => {
+  if (!S.movie) return;
+  const [x, y] = pt(ev); const d = S.drag;
+  if (!d) {
+    const hit = hitAt(x, y); const hv = hit ? targetFor(hit).sel : null;
+    if (!samePath(hv, S.hover)) { S.hover = hv; draw(); }
+    const sel = nodeAt(S.sel); const h = sel ? handleAt(sel, x, y, false) : -1;
+    vp.style.cursor = S.space ? 'grab' : h === 8 ? 'crosshair' : h >= 0 ? (h % 4 === 1 ? 'ns-resize' : h % 4 === 3 ? 'ew-resize' : (h === 0 || h === 4) ? 'nwse-resize' : 'nesw-resize') : hit ? 'move' : 'default';
+    return;
+  }
+  if (d.mode === 'pan') { S.view.x = d.vx + x - d.sx; S.view.y = d.vy + y - d.sy; draw(); return; }
+  if (d.mode === 'pending') {
+    if (Math.hypot(x - d.sx, y - d.sy) < 3) return;
+    const sx = d.sx, sy = d.sy; startTransform(d.node, 'move', -1, sx, sy);
+  }
+  const D = S.drag; const ed = D.ed;
+  if (D.mode === 'move') {
+    const p0 = M.apply(D.parentInv, D.sx, D.sy), p = M.apply(D.parentInv, x, y);
+    let dx = p[0] - p0[0], dy = p[1] - p0[1];
+    if (ev.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+    if (!ev.altKey) { dx = Math.round(dx / 20) * 20; dy = Math.round(dy / 20) * 20; }
+    const m = ed.m0.slice(); m[4] += dx; m[5] += dy; applyMatrix(ed, m);
+  } else if (D.mode === 'scale') {
+    const [hx, hy] = HANDLES[D.h], b = D.b;
+    const Lo = [b.xmin + (1 - hx) * (b.xmax - b.xmin), b.ymin + (1 - hy) * (b.ymax - b.ymin)];
+    const Ld = [b.xmin + hx * (b.xmax - b.xmin), b.ymin + hy * (b.ymax - b.ymin)];
+    const Q = M.apply(D.worldInv, x, y);
+    let sx = hx !== 0.5 && Math.abs(Ld[0] - Lo[0]) > 1e-6 ? (Q[0] - Lo[0]) / (Ld[0] - Lo[0]) : 1;
+    let sy = hy !== 0.5 && Math.abs(Ld[1] - Lo[1]) > 1e-6 ? (Q[1] - Lo[1]) / (Ld[1] - Lo[1]) : 1;
+    if (ev.shiftKey) { if (hx === 0.5) sx = sy; else if (hy === 0.5) sy = sx; else { const s = Math.abs(sx) > Math.abs(sy) ? sx : sy; sx = sy = s; } }
+    const clamp = (v) => (Math.abs(v) < 0.01 ? (v < 0 ? -0.01 : 0.01) : v);
+    sx = clamp(sx); sy = clamp(sy);
+    const Sm = [sx, 0, 0, sy, Lo[0] - sx * Lo[0], Lo[1] - sy * Lo[1]];
+    applyMatrix(ed, M.mul(ed.m0, Sm));
+  } else if (D.mode === 'rotate') {
+    const p = M.apply(D.parentInv, x, y); let th = Math.atan2(p[1] - D.c[1], p[0] - D.c[0]) - D.a0;
+    if (ev.shiftKey) th = Math.round(th / (Math.PI / 12)) * (Math.PI / 12);
+    const c = Math.cos(th), s = Math.sin(th), C = D.c;
+    const R = [c, s, -s, c, C[0] - c * C[0] + s * C[1], C[1] - s * C[0] - c * C[1]];
+    applyMatrix(ed, M.mul(R, ed.m0));
+  }
+  renderInspector();
+});
+function endDrag() {
+  const d = S.drag; S.drag = null; vp.classList.remove('panning');
+  if (d && d.ed) endEdit(d.ed);
+}
+vp.addEventListener('pointerup', endDrag);
+vp.addEventListener('pointercancel', endDrag);
+vp.addEventListener('pointerleave', () => { if (!S.drag && S.hover) { S.hover = null; draw(); } });
+vp.addEventListener('contextmenu', (ev) => ev.preventDefault());
+vp.addEventListener('dblclick', (ev) => {
+  const [x, y] = pt(ev); const n = nodeAt(S.sel);
+  if (n && n.children) {
+    S.scope = n.path.slice(); S.sel = null;
+    const hit = hitAt(x, y); if (hit && startsWith(hit.path, S.scope) && hit.path.length > S.scope.length) S.sel = hit.path.slice(0, S.scope.length + 1);
+    revealSel(); updateAll();
+  }
+});
+vp.addEventListener('wheel', (ev) => {
+  ev.preventDefault(); const [x, y] = pt(ev);
+  zoomAt(x, y, Math.exp(-ev.deltaY * (ev.ctrlKey ? 0.01 : 0.0015)));
+}, { passive: false });
+function zoomAt(x, y, f) {
+  const z0 = S.view.z, z = Math.max(0.02, Math.min(32, z0 * f));
+  S.view.x = x - (x - S.view.x) * (z / z0); S.view.y = y - (y - S.view.y) * (z / z0); S.view.z = z; draw();
+}
+function fit() {
+  if (!S.movie) return;
+  let b = null;
+  if (S.mode.kind === 'stage') b = S.movie.stage;
+  else for (const n of S.tree) if (n.bounds) b = union(b, M.boundsOf(n.world, n.bounds));
+  if (!b) b = { xmin: -2000, xmax: 2000, ymin: -2000, ymax: 2000 };
+  const w = vp.clientWidth || 800, h = vp.clientHeight || 500, pad = 32;
+  const z = Math.min((w - pad * 2) / ((b.xmax - b.xmin) / 20 || 1), (h - pad * 2) / ((b.ymax - b.ymin) / 20 || 1));
+  S.view.z = Math.max(0.02, Math.min(8, z));
+  S.view.x = w / 2 - S.view.z * (b.xmin + b.xmax) / 40; S.view.y = h / 2 - S.view.z * (b.ymin + b.ymax) / 40; draw();
+}
+new ResizeObserver(() => draw()).observe(vp);
+
+// drag & drop files
+vp.addEventListener('dragover', (ev) => { ev.preventDefault(); $('drop').hidden = false; });
+vp.addEventListener('dragleave', () => { $('drop').hidden = true; });
+vp.addEventListener('drop', async (ev) => {
+  ev.preventDefault(); $('drop').hidden = true;
+  const f = ev.dataTransfer.files[0]; if (f) openBytes(new Uint8Array(await f.arrayBuffer()), f.name);
+});
+$('fileInput').addEventListener('change', async (ev) => {
+  const f = ev.target.files[0]; if (f) openBytes(new Uint8Array(await f.arrayBuffer()), f.name); ev.target.value = '';
+});
+
+// keyboard
+addEventListener('keydown', (ev) => {
+  const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName);
+  const mod = ev.ctrlKey || ev.metaKey;
+  if (mod && ev.key.toLowerCase() === 'z') { if (typing) return; ev.preventDefault(); ev.shiftKey ? swapHistory(S.redo, S.undo) : swapHistory(S.undo, S.redo); return; }
+  if (mod && ev.key.toLowerCase() === 'y') { if (typing) return; ev.preventDefault(); swapHistory(S.redo, S.undo); return; }
+  if (typing) return;
+  if (ev.key === ' ') { S.space = true; vp.classList.add('pan'); ev.preventDefault(); return; }
+  if (ev.key === 'Escape') { if (S.sel && S.sel.length > S.scope.length) S.sel = null; else if (S.scope.length) { S.sel = S.scope.slice(); S.scope = S.scope.slice(0, -1); } updateAll(); return; }
+  if (ev.key === 'Enter') { const n = nodeAt(S.sel); if (n && n.children) { S.scope = n.path.slice(); S.sel = null; updateAll(); } return; }
+  const step = ev.shiftKey ? 10 : 1;
+  const k = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[ev.key];
+  if (k && S.sel) { ev.preventDefault(); nudge(k[0], k[1]); }
+  if (ev.key === 'f' && !mod) fit();
+});
+addEventListener('keyup', (ev) => { if (ev.key === ' ') { S.space = false; vp.classList.remove('pan'); } });
+
+// ---------- panels ----------
+function updateAll() { draw(); renderTree(); renderCrumbs(); renderInspector(); renderBar(); }
+function renderBar() {
+  const n = S.undo.length; const c = $('editCount');
+  c.textContent = n ? n + (n === 1 ? ' edit' : ' edits') : 'No edits'; c.classList.toggle('on', n > 0);
+  $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length; $('exportBtn').disabled = !S.movie;
+}
+function revealSel() { if (!S.sel) return; for (let i = 1; i < S.sel.length; i++) S.expanded.add(S.sel.slice(0, i).join('/')); }
+function matchesFilter(n, q) { return (nodeName(n) + ' ' + className(n.char.id)).toLowerCase().includes(q) || (n.children || []).some((c) => matchesFilter(c, q)); }
+function renderTree() {
+  const el = $('tree');
+  $('tabLayers').setAttribute('aria-selected', S.tab === 'layers'); $('tabSymbols').setAttribute('aria-selected', S.tab === 'symbols');
+  if (!S.movie) { el.innerHTML = '<p class="empty" style="padding:12px">Open a .swf to see its layers.</p>'; return; }
+  if (S.tab === 'symbols') return renderSymbols(el);
+  const q = S.filter.trim().toLowerCase(); const rows = []; let count = 0;
+  const walk = (nodes, lvl) => {
+    for (let i = nodes.length - 1; i >= 0 && count < 3000; i--) {
+      const n = nodes[i];
+      if (q && !matchesFilter(n, q)) continue;
+      count++;
+      const open = !!n.children && (q || S.expanded.has(n.key));
+      const name = nodeName(n); const cls = className(n.char.id);
+      const classes = ['row'];
+      if (samePath(n.path, S.sel)) classes.push('sel');
+      if (samePath(n.path, S.scope)) classes.push('scope');
+      if (n.entry.visible === false) classes.push('hid');
+      rows.push(`<div class="${classes.join(' ')}" data-key="${n.key}" style="padding-left:${8 + lvl * 14}px" title="${esc(cls || charLabel(n.char))}">` +
+        `<span class="tw" data-tw="${n.children ? n.key : ''}">${n.children && n.children.length ? (open ? '▾' : '▸') : ''}</span>` +
+        `<span class="nm${name ? '' : ' anon'}">${esc(name || cls.split('.').pop() || charLabel(n.char))}</span>` +
+        `<span class="ty">${n.entry.clipDepth ? 'mask' : esc(n.char.type === 'sprite' ? 'mc' : n.char.type)}</span></div>`);
+      if (open) walk(n.children, lvl + 1);
+    }
+  };
+  walk(S.tree, 0);
+  el.innerHTML = rows.join('') || '<p class="empty" style="padding:12px">' + (q ? 'Nothing matches that name.' : 'This timeline has nothing on this frame.') + '</p>';
+}
+function renderSymbols(el) {
+  const sprites = [...S.movie.dict.values()].filter((c) => c.type === 'sprite')
+    .sort((a, b) => (!!className(b.id) - !!className(a.id)) || a.id - b.id);
+  const q = S.filter.trim().toLowerCase();
+  const items = [`<div class="sym${S.mode.kind === 'stage' ? ' cur' : ''}" data-sym="stage"><b>Stage</b><span>root timeline · ${S.movie.frameCount} frame${S.movie.frameCount > 1 ? 's' : ''}</span></div>`];
+  for (const c of sprites) {
+    const nm = className(c.id) || 'Symbol #' + c.id;
+    if (q && !nm.toLowerCase().includes(q)) continue;
+    items.push(`<div class="sym${S.mode.kind === 'symbol' && S.mode.id === c.id ? ' cur' : ''}" data-sym="${c.id}"><b title="${esc(nm)}">${esc(nm)}</b><span>#${c.id} · ${c.frameCount} frame${c.frameCount > 1 ? 's' : ''} · used ${S.uses.get(c.id) || 0}×</span></div>`);
+  }
+  el.innerHTML = items.join('');
+}
+$('tree').addEventListener('click', (ev) => {
+  const sym = ev.target.closest('[data-sym]');
+  if (sym) { openTimeline(sym.dataset.sym === 'stage' ? { kind: 'stage' } : { kind: 'symbol', id: +sym.dataset.sym }); return; }
+  const tw = ev.target.closest('[data-tw]');
+  if (tw && tw.dataset.tw) { const k = tw.dataset.tw; S.expanded.has(k) ? S.expanded.delete(k) : S.expanded.add(k); renderTree(); return; }
+  const row = ev.target.closest('.row'); if (!row) return;
+  const path = row.dataset.key.split('/').map(Number);
+  // Rows are re-rendered on every click, so native dblclick never lands; detect it here.
+  const now = Date.now(), again = lastRowClick.key === row.dataset.key && now - lastRowClick.t < 450;
+  lastRowClick = { key: row.dataset.key, t: now };
+  const n = nodeAt(path);
+  if (again && n && n.children) { S.scope = n.path.slice(); S.sel = null; S.expanded.add(n.key); updateAll(); return; }
+  S.sel = path; S.scope = path.slice(0, -1); revealSel(); updateAll();
+});
+let lastRowClick = { key: null, t: 0 };
+function openTimeline(mode) {
+  S.mode = mode; S.frames = new Map(); S.scope = []; S.sel = null; S.hover = null; S.expanded = new Set(); S.tab = 'layers';
+  rebuild(); fit(); updateAll();
+}
+$('tabLayers').onclick = () => { S.tab = 'layers'; renderTree(); };
+$('tabSymbols').onclick = () => { S.tab = 'symbols'; renderTree(); };
+$('search').addEventListener('input', (ev) => { S.filter = ev.target.value; renderTree(); });
+
+function renderCrumbs() {
+  const el = $('crumbs'); if (!S.movie) { el.innerHTML = ''; return; }
+  const parts = [`<button class="crumb" data-depth="0" type="button">${esc(S.mode.kind === 'stage' ? 'Stage' : (className(S.mode.id) || 'Symbol #' + S.mode.id))}</button>`];
+  for (let i = 1; i <= S.scope.length; i++) {
+    const n = nodeAt(S.scope.slice(0, i)); if (!n) break;
+    parts.push('<span class="sep">›</span>', `<button class="crumb" data-depth="${i}" type="button">${esc(nodeName(n) || className(n.char.id) || 'Symbol #' + n.char.id)}</button>`);
+  }
+  const tl = scopeTimeline(); let frames = '';
+  if (tl.frames > 1) {
+    const labels = SWF.frameLabels(tl.tags); const cur = frameOf(tl.key); const opts = [];
+    for (let f = 1; f <= tl.frames; f++) { const l = labels.filter((x) => x.frame === f).map((x) => x.name).join(', '); opts.push(`<option value="${f}"${f === cur ? ' selected' : ''}>${f}${l ? ' · ' + esc(l) : ''}</option>`); }
+    frames = `<div class="frames"><span class="lbl">Frame</span><button class="btn sm icon" data-fstep="-1" type="button" aria-label="Previous frame">‹</button><select id="frameSel" data-key="${tl.key}" aria-label="Frame">${opts.join('')}</select><button class="btn sm icon" data-fstep="1" type="button" aria-label="Next frame">›</button></div>`;
+  }
+  el.innerHTML = parts.join('') + frames;
+}
+$('crumbs').addEventListener('click', (ev) => {
+  const c = ev.target.closest('[data-depth]');
+  if (c) { const d = +c.dataset.depth; S.sel = S.scope.length > d ? S.scope.slice(0, d + 1) : S.sel; S.scope = S.scope.slice(0, d); updateAll(); return; }
+  const st = ev.target.closest('[data-fstep]');
+  if (st) { const tl = scopeTimeline(); setFrame(tl.key, Math.max(1, Math.min(tl.frames, frameOf(tl.key) + +st.dataset.fstep))); }
+});
+$('crumbs').addEventListener('change', (ev) => { if (ev.target.id === 'frameSel') setFrame(ev.target.dataset.key, +ev.target.value); });
+function setFrame(key, f) { S.frames.set(key, f); rebuild(); if (S.sel && !nodeAt(S.sel)) S.sel = null; updateAll(); }
+
+function renderInspector() {
+  const el = $('insp');
+  if (el.contains(document.activeElement) && /INPUT|TEXTAREA/.test(document.activeElement.tagName) && !S.drag) return;
+  if (!S.movie) { el.innerHTML = '<p class="empty">Open a menu .swf to start.</p>'; return; }
+  const n = nodeAt(S.sel);
+  if (!n) { el.innerHTML = fileInfo(); return; }
+  const e = n.entry, p = M.decompose(e.matrix), b = n.bounds;
+  const lw = b ? (b.xmax - b.xmin) / 20 : 0, lh = b ? (b.ymax - b.ymin) / 20 : 0;
+  const skewed = Math.abs(((p.skewX - p.skewY + 540) % 360) - 180) > 0.01;
+  const cls = className(n.char.id);
+  const tl = n.parent ? { id: n.parent.char.id, uses: S.uses.get(n.parent.char.id) || 0, name: nodeName(n.parent) || className(n.parent.char.id) } : null;
+  const { tags } = matrixTagsFor(e);
+  const keys = e.life.matrixTags.length;
+  const canHide = true;
+  const html = [];
+  html.push(`<div><h2>${esc(nodeName(n) || cls.split('.').pop() || charLabel(n.char))}</h2><div class="meta"><span class="chip">${esc(e.clipDepth ? 'Mask' : charLabel(n.char))}</span><span class="chip">Depth ${e.depth}</span><span class="chip">#${n.char.id}</span>${e.visible === false ? '<span class="chip on">Hidden</span>' : ''}</div></div>`);
+  html.push(`<div><h3>Layout</h3><div class="fields">
+    ${field('x', 'X', fmt(p.x))}${field('y', 'Y', fmt(p.y))}
+    ${field('w', 'Width', b ? fmt(Math.abs(lw * p.scaleX)) : '', !b)}${field('h', 'Height', b ? fmt(Math.abs(lh * p.scaleY)) : '', !b)}
+    ${field('sx', 'Scale X %', fmt(p.scaleX * 100))}${field('sy', 'Scale Y %', fmt(p.scaleY * 100))}
+    ${field('rot', skewed ? 'Rotation (skewed)' : 'Rotation °', fmt(p.rotation))}
+  </div></div>`);
+  html.push(`<div class="btns">
+    ${canHide ? `<button class="btn sm" data-act="vis" type="button">${e.visible === false ? 'Show' : 'Hide'}</button>` : ''}
+    ${n.children ? '<button class="btn sm" data-act="enter" type="button">Edit contents</button>' : ''}
+    <button class="btn sm" data-act="reset" type="button">Reset to original</button>
+  </div>`);
+  if (n.children && n.char.frameCount > 1) {
+    const labels = SWF.frameLabels(n.char.tag.children); const opts = [];
+    for (let f = 1; f <= n.char.frameCount; f++) { const l = labels.filter((x) => x.frame === f).map((x) => x.name).join(', '); opts.push(`<option value="${f}"${f === n.spriteFrame ? ' selected' : ''}>${f}${l ? ' · ' + esc(l) : ''}</option>`); }
+    html.push(`<div class="field"><label for="spriteFrame">Show frame</label><select id="spriteFrame" class="search" style="margin:0">${opts.join('')}</select></div>`);
+  }
+  if (keys > 1) html.push(`<p class="note info">${keys} keyframes set this element's position. ${S.allKeys ? 'Edits shift all of them together, so its animation keeps its shape.' : 'Only the keyframe at the current frame changes. Turn on "Edit all keyframes" to move the whole animation.'}</p>`);
+  if (tl && tl.uses > 1) html.push(`<p class="note warn">This sits inside ${esc(tl.name || 'symbol #' + tl.id)}, which is used ${tl.uses} times. Changing it changes every copy.</p>`);
+  if (n.char.type === 'import') html.push(`<p class="note">Imported from <code>${esc(n.char.url)}</code> as ${esc(n.char.name)}. You can move it, but it can't be drawn here.</p>`);
+  if (e.visible === false) html.push('<p class="note">Hidden elements stay in the file with visibility off. Menu code can still show them.</p>');
+  html.push(appearanceSection(n));
+  if (n.char.type === 'text' && !e.clipDepth) html.push(textSection(n));
+  if (n.char.type === 'shape' && !e.clipDepth) html.push(fillSection(n));
+  html.push(`<dl class="kv"><dt>Class</dt><dd>${esc(cls || '—')}</dd><dt>Placed by</dt><dd>${['', '', '', '', 'PlaceObject'][e.placeTag.code] || (e.placeTag.code === 26 ? 'PlaceObject2' : 'PlaceObject3')}</dd><dt>Tags edited</dt><dd>${tags.length}</dd></dl>`);
+  el.innerHTML = html.join('');
+}
+function field(id, label, value, disabled) {
+  return `<div class="field"><label for="f_${id}">${label}</label><input id="f_${id}" data-f="${id}" inputmode="decimal" value="${value}"${disabled ? ' disabled' : ''}></div>`;
+}
+function fileInfo() {
+  const m = S.movie, s = m.stage;
+  const counts = {}; for (const c of m.dict.values()) counts[c.type] = (counts[c.type] || 0) + 1;
+  const imports = [...new Set(m.imports.map((i) => i.url))];
+  return `<div><h2>${esc(S.fileName)}</h2><div class="meta"><span class="chip">${m.sig}</span><span class="chip">SWF ${m.version}</span><span class="chip">${(s.xmax - s.xmin) / 20}×${(s.ymax - s.ymin) / 20}</span></div></div>
+  <p class="empty">Click an element on the canvas, or pick one under Layers. Drag to move it, pull the square handles to resize, and the round handle to rotate. Hold <kbd>Shift</kbd> to keep proportions, <kbd>Alt</kbd> to move off the pixel grid.</p>
+  <dl class="kv"><dt>Symbols</dt><dd>${counts.sprite || 0}</dd><dt>Shapes</dt><dd>${counts.shape || 0}</dd><dt>Text fields</dt><dd>${counts.text || 0}</dd><dt>Bitmaps</dt><dd>${counts.bitmap || 0}</dd><dt>Frame rate</dt><dd>${fmt(m.frameRate)} fps</dd></dl>
+  ${imports.length ? `<p class="note">Elements imported from ${imports.map((u) => '<code>' + esc(u) + '</code>').join(', ')} show as grey placeholders.</p>` : ''}
+  <p class="note">Text is previewed in a stand-in font. Starfield's own fonts load from <code>fonts_*.swf</code> in game.</p>`;
+}
+// ---------- design: appearance, text, fills ----------
+const hex = (c) => '#' + [0, 1, 2].map((i) => Math.round(c[i]).toString(16).padStart(2, '0')).join('');
+const unhex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const clampPct = (v) => Math.max(0, Math.min(100, v));
+// Reads a colour transform as opacity plus a single tint (the model Flash's
+// Properties panel uses). Anything else is reported as a custom transform.
+function readTint(cx) {
+  if (!cx) return { alpha: 100, tint: [255, 255, 255], amount: 0, custom: false };
+  const t = 1 - cx.m[0] / 256;
+  const custom = cx.m[0] !== cx.m[1] || cx.m[1] !== cx.m[2] || cx.a[3] !== 0 || t < -1e-6;
+  const tint = t > 1e-6 ? [0, 1, 2].map((i) => Math.max(0, Math.min(255, cx.a[i] / t))) : [255, 255, 255];
+  return { alpha: cx.m[3] / 256 * 100, tint, amount: Math.max(0, t) * 100, custom };
+}
+function makeTint(alpha, tint, amount) {
+  const t = clampPct(amount) / 100, a = Math.round(clampPct(alpha) * 2.56);
+  const k = Math.round(256 * (1 - t));
+  const cx = { m: [k, k, k, a], a: [0, 1, 2].map((i) => Math.round(tint[i] * t)).concat(0) };
+  return cx.m.every((v) => v === 256) && cx.a.every((v) => v === 0) ? null : cx;
+}
+function appearanceSection(n) {
+  const e = n.entry, cur = readTint(e.cx);
+  const keys = e.life.cxTags.length;
+  return `<div><h3>Appearance</h3><div class="fields">
+    ${field('alpha', 'Opacity %', fmt(cur.alpha, 1))}
+    ${field('tintAmt', 'Tint %', fmt(cur.amount, 1))}
+    <div class="field wide"><label for="f_tint">Tint colour</label><div class="color"><input type="color" id="f_tint" data-f="tint" value="${hex(cur.tint)}"><input id="f_tintHex" data-f="tintHex" value="${hex(cur.tint)}" spellcheck="false"></div></div>
+  </div>
+  ${cur.custom ? '<p class="note" style="margin-top:8px">This element has a custom colour transform. Editing here replaces it with opacity and tint.</p>' : ''}
+  ${keys > 1 ? `<p class="note info" style="margin-top:8px">${keys} keyframes set this element's colour. Only the one at the current frame changes.</p>` : ''}
+  ${e.cx ? '<div class="btns" style="margin-top:8px"><button class="btn sm" data-act="clearcx" type="button">Clear colour effects</button></div>' : ''}</div>`;
+}
+function setCx(n, cx, label) {
+  const e = n.entry, t = e.cxTag || e.placeTag;
+  commitTags(label, [t], () => SWF.setPlaceCxform(t, cx));
+}
+function usesOf(id) { let k = 0; walkTags(S.movie.tags, (t) => { if (isPlace(t)) { const po = safePlace(t); if (po && po.hasChar && po.charId === id) k++; } }); return k; }
+function sharedNote(n, what) {
+  const k = usesOf(n.char.id);
+  return k > 1 ? `<p class="note warn">This ${what} is placed ${k} times. Changing it changes every copy.</p>` : '';
+}
+function textSection(n) {
+  const t = n.char, b = t.bounds, canSize = t.fontId != null || t.fontClass != null;
+  const font = t.fontClass || (t.fontId != null ? (S.movie.dict.get(t.fontId) || {}).name || '#' + t.fontId : '');
+  const al = t.align || 0;
+  return `<div><h3>Text</h3><div class="fields">
+    <div class="field wide"><label for="f_text">${t.html ? 'Content (HTML)' : 'Content'}</label><textarea id="f_text" data-f="text" spellcheck="false">${esc(t.text || '')}</textarea></div>
+    <div class="field wide"><label for="f_tcolor">Colour</label><div class="color"><input type="color" id="f_tcolor" data-f="tcolor" value="${hex(t.color)}"><input id="f_tcolorHex" data-f="tcolorHex" value="${hex(t.color)}" spellcheck="false"></div></div>
+    ${field('tsize', 'Size px', canSize ? fmt((t.fontHeight || 0) / 20) : '', !canSize)}
+    <div class="field"><label for="f_talign">Align</label><select id="f_talign" data-f="talign">${['Left', 'Right', 'Center', 'Justify'].map((x, i) => `<option value="${i}"${i === al ? ' selected' : ''}>${x}</option>`).join('')}</select></div>
+    ${field('tw', 'Box width', fmt((b.xmax - b.xmin) / 20))}${field('th', 'Box height', fmt((b.ymax - b.ymin) / 20))}
+  </div></div>
+  ${sharedNote(n, 'text field')}
+  <dl class="kv"><dt>Font</dt><dd>${esc(font || '—')}</dd>${t.variable ? `<dt>Variable</dt><dd>${esc(t.variable)}</dd>` : ''}</dl>
+  <p class="note">Most menu text is filled in by ActionScript at runtime. Changes here set the text the field starts with, and its style.</p>`;
+}
+function fillColors(n) {
+  const d = shapeData(n.char), out = [];
+  if (d.error) return out;
+  d.groups.forEach((g, gi) => {
+    g.fills.forEach((f, fi) => {
+      const s = f.style; if (f.empty) return;
+      if (s.type === 0) out.push({ at: s.colorAt, color: s.color, label: 'Fill ' + (out.length + 1) });
+      else if (s.stops) s.stops.forEach((st, si) => out.push({ at: st.colorAt, color: st.color, label: 'Gradient ' + (fi + 1) + ' · stop ' + (si + 1) }));
+    });
+    g.lines.forEach((l, li) => { if (!l.empty && l.style.colorAt != null) out.push({ at: l.style.colorAt, color: l.style.color, label: 'Line ' + (li + 1) + ' · ' + fmt(l.style.width / 20) + 'px' }); });
+  });
+  return out;
+}
+function fillSection(n) {
+  const list = fillColors(n), d = shapeData(n.char);
+  if (!list.length) return '';
+  const rows = list.slice(0, 24).map((c) => `<div class="swatch"><input type="color" data-fill="${c.at}" value="${hex(c.color)}" aria-label="${esc(c.label)} colour"><span title="${esc(c.label)}">${esc(c.label)}</span>` +
+    (d.hasAlpha ? `<input data-falpha="${c.at}" inputmode="decimal" value="${fmt(c.color[3] / 2.55, 0)}" aria-label="${esc(c.label)} opacity %" title="Opacity %">` : '<span>opaque</span>') + '</div>');
+  return `<div><h3>Shape colours</h3><div class="swatches">${rows.join('')}</div>${list.length > 24 ? `<p class="empty">${list.length - 24} more not shown.</p>` : ''}</div>${sharedNote(n, 'shape')}`;
+}
+function designChange(n, ev) {
+  const tg = ev.target, f = tg.dataset.f;
+  if (tg.dataset.fill != null || tg.dataset.falpha != null) {
+    const at = +(tg.dataset.fill != null ? tg.dataset.fill : tg.dataset.falpha);
+    const cur = fillColors(n).find((c) => c.at === at); if (!cur) return true;
+    let col = cur.color.slice();
+    if (tg.dataset.fill != null) col = unhex(tg.value).concat(col[3]);
+    else { const v = parseFloat(tg.value); if (!isFinite(v)) { renderInspectorForce(); return true; } col[3] = Math.round(clampPct(v) * 2.55); }
+    tg.blur(); commitTags('Recolour shape', [n.char.tag], () => SWF.setShapeColors(n.char.tag, [{ at, color: col }]));
+    return true;
+  }
+  if (['alpha', 'tintAmt', 'tint', 'tintHex'].includes(f)) {
+    const cur = readTint(n.entry.cx);
+    const val = f === 'tint' || f === 'tintHex' ? tg.value.trim() : parseFloat(tg.value);
+    if (f === 'tintHex' && !/^#?[0-9a-f]{6}$/i.test(val)) { renderInspectorForce(); return true; }
+    if ((f === 'alpha' || f === 'tintAmt') && !isFinite(val)) { renderInspectorForce(); return true; }
+    let { alpha, tint, amount } = cur;
+    if (f === 'alpha') alpha = val; else if (f === 'tintAmt') amount = val;
+    else { tint = unhex(val.startsWith('#') ? val : '#' + val); if (!amount) amount = 50; }
+    tg.blur(); setCx(n, makeTint(alpha, tint, amount), f === 'alpha' ? 'Change opacity' : 'Change tint');
+    return true;
+  }
+  const textFields = { text: 1, tcolor: 1, tcolorHex: 1, tsize: 1, talign: 1, tw: 1, th: 1 };
+  if (!textFields[f]) return false;
+  const t = n.char, ch = {};
+  if (f === 'text') ch.text = tg.value;
+  else if (f === 'tcolor' || f === 'tcolorHex') {
+    const v = tg.value.trim(); if (!/^#?[0-9a-f]{6}$/i.test(v)) { renderInspectorForce(); return true; }
+    ch.color = unhex(v.startsWith('#') ? v : '#' + v).concat(t.color[3]);
+  } else if (f === 'talign') ch.align = +tg.value;
+  else {
+    const v = parseFloat(tg.value); if (!isFinite(v) || v <= 0) { renderInspectorForce(); return true; }
+    if (f === 'tsize') ch.fontHeight = Math.round(v * 20);
+    else if (f === 'tw') ch.bounds = Object.assign({}, t.bounds, { xmax: t.bounds.xmin + Math.round(v * 20) });
+    else ch.bounds = Object.assign({}, t.bounds, { ymax: t.bounds.ymin + Math.round(v * 20) });
+  }
+  tg.blur(); commitTags(f === 'text' ? 'Edit text' : 'Style text', [t.tag], () => SWF.setEditText(t.tag, ch));
+  return true;
+}
+
+$('insp').addEventListener('change', (ev) => {
+  const n = nodeAt(S.sel); if (!n) return;
+  if (ev.target.id === 'spriteFrame') { S.frames.set(n.key, +ev.target.value); rebuild(); updateAll(); return; }
+  if (designChange(n, ev)) return;
+  const f = ev.target.dataset.f; if (!f) return;
+  const v = parseFloat(ev.target.value); if (!isFinite(v)) { renderInspectorForce(); return; }
+  const p = M.decompose(n.entry.matrix), b = n.bounds;
+  if (f === 'x') p.x = v; else if (f === 'y') p.y = v;
+  else if (f === 'sx') p.scaleX = v / 100; else if (f === 'sy') p.scaleY = v / 100;
+  else if (f === 'w' && b) p.scaleX = Math.sign(p.scaleX || 1) * v / ((b.xmax - b.xmin) / 20 || 1);
+  else if (f === 'h' && b) p.scaleY = Math.sign(p.scaleY || 1) * v / ((b.ymax - b.ymin) / 20 || 1);
+  else if (f === 'rot') { const d = v - p.rotation; p.skewX += d; p.skewY += d; }
+  ev.target.blur();
+  setMatrixNow(n, M.compose(p), ({ x: 'Move', y: 'Move', rot: 'Rotate' })[f] || 'Resize');
+});
+function renderInspectorForce() { document.activeElement && document.activeElement.blur(); renderInspector(); }
+$('insp').addEventListener('click', (ev) => {
+  const a = ev.target.closest('[data-act]'); if (!a) return; const n = nodeAt(S.sel); if (!n) return;
+  if (a.dataset.act === 'vis') setVisible(n, n.entry.visible === false);
+  else if (a.dataset.act === 'enter') { S.scope = n.path.slice(); S.sel = null; S.expanded.add(n.key); updateAll(); }
+  else if (a.dataset.act === 'reset') resetNode(n);
+  else if (a.dataset.act === 'clearcx') setCx(n, null, 'Clear colour effects');
+});
+
+// ---------- toolbar ----------
+$('undoBtn').onclick = () => swapHistory(S.undo, S.redo);
+$('redoBtn').onclick = () => swapHistory(S.redo, S.undo);
+$('zoomIn').onclick = () => zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1.25);
+$('zoomOut').onclick = () => zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 0.8);
+$('zoom100').onclick = () => zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1 / S.view.z);
+$('fitBtn').onclick = fit;
+$('backdrop').onchange = (ev) => { S.backdrop = ev.target.value; draw(); };
+$('allKeys').onchange = (ev) => { S.allKeys = ev.target.checked; renderInspector(); };
+$('showBounds').onchange = (ev) => { S.showBounds = ev.target.checked; draw(); };
+$('sampleBtn').onclick = () => openBytes(SWFSample.build(), 'QuickLootSample.swf');
+$('exportBtn').onclick = async () => {
+  if (!S.movie) return;
+  const btn = $('exportBtn'); btn.disabled = true;
+  try {
+    const bytes = await SWF.save(S.movie);
+    await SWF.load(bytes); // the edited file must parse back before we hand it over
+    const base = S.fileName.replace(/\.(swf|gfx)$/i, '') || 'menu';
+    const zip = SWF.zipStore([{ name: /\.(swf|gfx)$/i.test(S.fileName) ? S.fileName : base + '.swf', data: bytes }]);
+    const dl = await downloadsP;
+    if (dl) {
+      await dl.save({ filename: base + '.zip', data: zip });
+      toast('Saved ' + base + '.zip. Unzip it and replace the original .swf.', 'ok');
+    } else {
+      const name = /\.(swf|gfx)$/i.test(S.fileName) ? S.fileName : base + '.swf';
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/x-shockwave-flash' }));
+      const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      toast('Saved ' + name + '. Replace the original file with it.', 'ok');
+    }
+  } catch (e) {
+    if (e && e.code === 'declined') toast('Export cancelled');
+    else toast('Export failed: ' + ((e && (e.message || e.code)) || e), 'err');
+  } finally { btn.disabled = false; }
+};
+
+document.fonts && document.fonts.load('20px "Barlow"').then(() => { S.shapes.size && draw(); }).catch(() => {});
+openBytes(SWFSample.build(), 'QuickLootSample.swf');
+})();
+</script>
+
+</body>
+</html>
