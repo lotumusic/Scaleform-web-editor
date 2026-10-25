@@ -31,6 +31,12 @@ Other features:
 - Layers tree, a symbol browser, and frame/label picking for multi-frame clips.
 - Double-click to enter a symbol, <kbd>Esc</kbd> to go back, arrow keys to nudge.
 - Undo/redo, plus "Reset to original" for each element.
+- List preview: scrolling lists (like a container's item list) are filled by
+  the game at runtime, so the file has no rows. Select the list to show sample
+  rows built from its entry symbol, with placeholder item names. You can pick
+  the row symbol, row count and spacing. **Show hidden** in the view bar draws
+  elements the menu's code normally reveals, such as an item card. Both are
+  preview only and never saved.
 - Linked files: menus load other `.swf` files at runtime (shared widgets, button
   art, fonts). Add them with **Linked files** (or pick your whole extracted
   `Interface` folder) and the editor draws those parts too, following links
