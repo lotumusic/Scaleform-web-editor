@@ -1,0 +1,11 @@
+{
+  "name": "starfield-menu-editor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-based visual editor for Starfield Scaleform (.swf/.gfx) menus",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "python3 -m http.server 8080"
+  },
+  "license": "MIT"
+}
