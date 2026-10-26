@@ -46,6 +46,29 @@ Other features:
   export only writes the menu you opened.
 - Edits to animated elements can shift every keyframe together so the animation keeps its shape.
 
+## Grid layouts (menu code)
+
+Bethesda's scrolling lists (`BSScrollingContainer`) stack entries in one
+column, and that layout lives in the menu's ActionScript, not its artwork.
+Select such a list and set **Grid layout → Columns**. The editor then rewrites
+three methods of the list code in the file's bytecode: entries flow into that
+many columns, fit is measured by whole rows, and scrolling snaps to rows.
+Everything else in the code is left byte-for-byte unchanged, and 1 column
+gives back a normal list. The list preview follows the column count.
+
+The list's row symbol still needs reshaping into a tile to match.
+`recipes/rollover-grid.js` does both for the container panel in
+`HUDRolloverActivationWidget.swf`:
+
+```sh
+node recipes/rollover-grid.js HUDRolloverActivationWidget.swf out.swf 5
+```
+
+That gives 5 columns of 70px square tiles in the existing list frame (3 rows
+visible). Names wrap and shrink inside the tile, and rarity and status
+markers move to the tile's corners. The game still supplies the text
+(`Name (count)`), and there are no item pictures: the stock menu has none.
+
 ## Getting a menu file
 
 1. Vanilla menus are in `Starfield - Interface.ba2`. Extract it with Bethesda
@@ -74,6 +97,8 @@ Other features:
   the bytes it changes (PlaceObject matrices/colour transforms/visibility,
   DefineEditText, and shape colours). Everything else is left byte-for-byte
   unchanged. It has no DOM dependencies.
+- `abc-core.js` reads, disassembles and reassembles ActionScript 3 bytecode
+  (DoABC), so single methods can be rewritten. It also holds the grid patch.
 - `sample.js` builds a small QuickLoot-style menu so there's something to try.
 - `index.html` is the editor UI: a canvas renderer, hit testing, and the inspector.
 

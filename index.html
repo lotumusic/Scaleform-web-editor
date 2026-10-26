@@ -233,6 +233,7 @@ kbd { font-family: var(--f-mono); font-size: 11px; padding: 0 4px; border: 1px s
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script src="swf-core.js"></script>
+<script src="abc-core.js"></script>
 <script src="sample.js"></script>
 <script>
 (() => {
@@ -463,7 +464,9 @@ function sampleText(n, row) {
   if (/count|qty|amount|num/i.test(k)) return String([3, 120, 1, 6, 42, 1][row % 6]);
   if (/value|price|cost/i.test(k)) return String([25, 4, 900, 10, 2, 75][row % 6]);
   if (/weight|mass/i.test(k)) return ['0.5', '0.01', '2.0', '0.1', '1.0', '0.3'][row % 6];
-  return SAMPLE_ITEMS[row % SAMPLE_ITEMS.length].toUpperCase();
+  // Bethesda list entries show "Name (count)" when there is more than one.
+  const count = [1, 3, 103, 1, 106, 2, 16, 1, 100, 120, 1, 7][row % 12];
+  return SAMPLE_ITEMS[row % SAMPLE_ITEMS.length].toUpperCase() + (count > 1 ? ' (' + count + ')' : '');
 }
 const looksLikeList = (cls) => /Scrolling(Container|List)|ItemList|ListContainer/i.test(cls);
 function entryCandidates(mv) {
@@ -477,10 +480,21 @@ function previewConfig(n) {
   if (!S.listPreview.has(key)) {
     const cls = className(n.char.id, n.mv);
     const entry = looksLikeList(cls) && entryCandidates(n.mv).find((c) => /ListEntry$|Entry$/.test(c.name) && !/^Shared\.AS3\.BS/.test(c.name));
-    S.listPreview.set(key, entry ? { on: true, entryId: entry.id, rows: 0, spacing: 0 } : null);
+    S.listPreview.set(key, entry ? { on: true, entryId: entry.id, rows: 0, spacing: isBSList(n) ? 5 : 0 } : null);
   }
   return S.listPreview.get(key);
 }
+// Column count of the Bethesda list code in a movie (1 when unpatched), or
+// null when the movie has none. Cached per DoABC tag body.
+const gridCache = new WeakMap();
+function gridOf(mv) {
+  const tag = mv.tags.find((t) => t.code === 82 || t.code === 72); if (!tag) return null;
+  const c = gridCache.get(tag);
+  if (c && c.body === tag.body) return c.res;
+  let res = null; try { res = ABC.findScrollingGrid(mv.tags); } catch (e) { /* unreadable code */ }
+  gridCache.set(tag, { body: tag.body, res }); return res;
+}
+const isBSList = (n) => /(^|\.)BSScrollingContainer$/.test(className(n.char.id, n.mv));
 function addPreviewRows(n, lvl) {
   const cfg = previewConfig(n);
   if (!cfg || !cfg.on) return;
@@ -489,11 +503,16 @@ function addPreviewRows(n, lvl) {
   const probe = { path: [], entry: { matrix: I }, char: ech, mv: n.mv };
   probe.children = buildNodes(ech.tag.children, 1, [], I, null, lvl + 1, null, n.mv, true, 0);
   const eb = localBounds(probe); if (!eb) return;
-  const h = eb.ymax - eb.ymin, step = h + cfg.spacing * 20;
+  // Grid-patched lists step by the entry's Border_mc, like the patched code does.
+  const g = isBSList(n) ? gridOf(n.mv) : null, cols = g ? g.columns : 1;
+  const bm = probe.children.find((c) => c.entry.name === 'Border_mc');
+  const bw = bm && bm.bounds ? M.boundsOf(bm.entry.matrix, bm.bounds) : eb;
+  const sp = cfg.spacing * 20, step = eb.ymax - eb.ymin + sp, stepX = bw.xmax - bw.xmin + sp;
   const lb = localBounds(n);
-  const rows = cfg.rows || Math.max(3, Math.min(12, lb ? Math.floor((lb.ymax - lb.ymin) / step) : 6));
-  for (let i = 0; i < rows; i++) {
-    const m = [1, 0, 0, 1, 0, i * step - eb.ymin];
+  const fit = lb ? Math.floor((lb.ymax - lb.ymin + sp) / step) : 6;
+  const count = Math.min(60, cfg.rows || Math.max(3, Math.min(12, fit)) * cols);
+  for (let i = 0; i < count; i++) {
+    const m = [1, 0, 0, 1, (i % cols) * stepX, Math.floor(i / cols) * step - eb.ymin];
     const e = { depth: PREVIEW_DEPTH + i, charId: cfg.entryId, matrix: m, cx: null, name: 'Sample row ' + (i + 1), visible: true, life: { matrixTags: [], cxTags: [] } };
     const p = n.path.concat(e.depth), w = M.mul(n.world, m);
     const r = { path: p, key: p.join('/'), entry: e, char: ech, mv: n.mv, linked: false, foreign: true, preview: true, world: w, parentWorld: n.world, cx: n.cx, tags: null, frame: 1, parent: n };
@@ -513,12 +532,29 @@ function listPreviewSection(n) {
     <label class="check"><input type="checkbox" data-lp="on"${cfg && cfg.on ? ' checked' : ''}> Show sample rows</label>
     <div class="fields" style="margin-top:8px">
       <div class="field wide"><label for="lp_entry">Row symbol</label><select id="lp_entry" data-lp="entry"><option value="">Choose…</option>${opts}</select></div>
-      <div class="field"><label for="lp_rows">Rows</label><input id="lp_rows" data-lp="rows" inputmode="numeric" value="${cfg && cfg.rows ? cfg.rows : ''}" placeholder="auto"></div>
+      <div class="field"><label for="lp_rows">Items</label><input id="lp_rows" data-lp="rows" inputmode="numeric" value="${cfg && cfg.rows ? cfg.rows : ''}" placeholder="auto"></div>
       <div class="field"><label for="lp_sp">Spacing px</label><input id="lp_sp" data-lp="spacing" inputmode="decimal" value="${cfg ? fmt(cfg.spacing) : 0}"></div>
     </div>
-    <p class="note" style="margin-top:8px">The game fills this list at runtime, so the file has no rows. These sample rows are a preview only and aren't saved. Row spacing in game is set by the menu's code.</p></div>`;
+    <p class="note" style="margin-top:8px">The game fills this list at runtime, so the file has no rows. These sample rows are a preview only and aren't saved. Spacing in game is set by the menu's code.</p></div>${gridSection(n)}`;
+}
+function gridSection(n) {
+  if (!isBSList(n)) return '';
+  const g = gridOf(n.mv); if (!g) return '';
+  const editable = n.mv === S.movie;
+  return `<div><h3>Grid layout (in game)</h3>
+    <div class="fields"><div class="field"><label for="grid_cols">Columns</label><input id="grid_cols" data-grid="cols" inputmode="numeric" value="${g.columns}"${editable ? '' : ' disabled'}></div></div>
+    <p class="note" style="margin-top:8px">${editable
+      ? 'Rewrites this menu\'s list code so entries flow into this many columns, stepping by the row symbol\'s <code>Border_mc</code> size, and scrolling moves a whole row. It applies to every Bethesda scrolling list in this file. Reshape the row symbol into a tile to match (Symbols tab). 1 column is a normal list.'
+      : 'This list\'s code lives in a linked file. Open that file to change its layout.'}</p></div>`;
 }
 function listPreviewChange(n, ev) {
+  if (ev.target.dataset.grid) {
+    const g = gridOf(n.mv), v = parseInt(ev.target.value, 10);
+    ev.target.blur();
+    if (!g || !(v >= 1 && v <= 20)) { renderInspectorForce(); return true; }
+    if (v !== g.columns) commitTags(v > 1 ? 'Grid layout' : 'List layout', [g.tag], () => ABC.setScrollingGrid(g.tag, v));
+    return true;
+  }
   const f = ev.target.dataset.lp; if (!f) return false;
   const key = previewKey(n);
   const cfg = Object.assign({ on: false, entryId: null, rows: 0, spacing: 0 }, S.listPreview.get(key) || {});
@@ -711,8 +747,11 @@ function htmlToText(s) {
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\n$/, '');
 }
 function drawText(n, px) {
-  const t = n.char, b = t.bounds, size = t.fontHeight || 240;
+  const t = n.char, b = t.bounds;
+  let size = t.fontHeight || 240;
   const text = n.previewText != null ? n.previewText : t.html ? htmlToText(t.text || '') : (t.text || '');
+  // Lists set their entries to shrink text to fit, so sample text does too.
+  if (n.previewText != null) size = shrinkToFit(text, t, size);
   ctx.save();
   ctx.beginPath(); ctx.rect(b.xmin, b.ymin, b.xmax - b.xmin, b.ymax - b.ymin);
   if (t.border) { ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = px; ctx.stroke(); }
@@ -731,6 +770,18 @@ function drawText(n, px) {
     dashed(b, px, 'rgba(240,185,58,.55)');
     if (!text.trim()) label(n.entry.name || t.variable || 'text field', b.xmin + 3 * px * 20 / 20, b.ymin, px, 'rgba(240,185,58,.85)');
   }
+}
+function shrinkToFit(text, t, size) {
+  const b = t.bounds, w = b.xmax - b.xmin - 80 - (t.leftMargin || 0) - (t.rightMargin || 0), h = b.ymax - b.ymin - 80;
+  for (; size > 120; size -= 20) {
+    ctx.font = size + 'px ' + MENU_FONT;
+    const words = text.split(/\s+/);
+    if (words.some((x) => ctx.measureText(x).width > w)) continue;
+    const lines = t.wordWrap && t.multiline ? wrap(text, w).length : 1;
+    if (!t.wordWrap && ctx.measureText(text).width > w) continue;
+    if (lines * size * 1.15 <= h + size * 0.15) break;
+  }
+  return size;
 }
 function wrap(line, width) {
   const words = line.split(/(\s+)/); const out = []; let cur = '';
