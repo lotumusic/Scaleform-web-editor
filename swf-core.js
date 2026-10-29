@@ -233,7 +233,7 @@
     const p = parseTags(c.body, r.pos, c.body.length);
     const movie = {
       sig: c.sig, version: c.version, stage, frameRate, frameCount, headerBytes,
-      tags: p.tags, trailing: p.trailing, dict: new Map(), names: new Map(), imports: [],
+      tags: p.tags, trailing: p.trailing, dict: new Map(), names: new Map(), imports: [], importUrls: [],
       warnings: [],
     };
     if (c.declaredLen !== c.body.length + 8) movie.warnings.push('File length in header (' + c.declaredLen + ') differs from actual (' + (c.body.length + 8) + '); export will write the correct length.');
@@ -300,6 +300,8 @@
       }
       case TAG.ImportAssets: case TAG.ImportAssets2: {
         const url = r.str(); if (t.code === TAG.ImportAssets2) { r.u8(); r.u8(); }
+        // An import with no assets still loads the whole file (its classes and fonts).
+        if (!movie.importUrls.includes(url)) movie.importUrls.push(url);
         const n = r.u16();
         for (let i = 0; i < n; i++) {
           const id = r.u16(); const name = r.str();
@@ -490,18 +492,21 @@
           const life = lives.find(l => l.depth === po.depth && l.open);
           if (life && (!po.hasChar || po.move) && po.hasMatrix) life.matrixTags.push(t);
           if (life && (!po.hasChar || po.move) && po.cx) life.cxTags.push(t);
-          if (po.hasChar && !po.move && life) life.open = false;
+          if ((po.hasChar || po.className != null) && !po.move && life) life.open = false;
           continue;
         }
-        if (po.hasChar && !po.move) {
+        // PlaceObject3 can place a symbol by its ActionScript class name instead of a character id.
+        const byClass = !po.hasChar && po.className != null;
+        if ((po.hasChar || byClass) && !po.move) {
           for (const l of lives) if (l.depth === po.depth) l.open = false;
           const life = { id: ++lifeId, depth: po.depth, open: true, matrixTags: [], cxTags: [] };
           lives.push(life);
-          cur = { depth: po.depth, charId: po.charId, matrix: [1, 0, 0, 1, 0, 0], cx: null, name: null, clipDepth: 0,
+          cur = { depth: po.depth, charId: po.hasChar ? po.charId : null, matrix: [1, 0, 0, 1, 0, 0], cx: null, name: null, clipDepth: 0,
             visible: true, ratio: 0, placeTag: t, matrixTag: null, life };
           list.set(po.depth, cur);
         } else if (!cur) continue;
-        else if (po.hasChar) cur.charId = po.charId;
+        else if (po.hasChar) { cur.charId = po.charId; cur.className = null; }
+        else if (byClass) cur.charId = null;
         if (po.hasMatrix) { cur.matrix = po.matrix; cur.matrixTag = t; cur.life.matrixTags.push(t); }
         if (po.cx) { cur.cx = po.cx; cur.cxTag = t; cur.life.cxTags.push(t); }
         if (po.name != null) cur.name = po.name;
@@ -518,6 +523,14 @@
     }
     return [...list.values()].sort((a, b) => a.depth - b.depth);
   }
+
+  // Character id for an ActionScript class or export name, or undefined.
+  function idForName(movie, name) {
+    if (!movie.byName) { movie.byName = new Map(); for (const [id, n] of movie.names) if (!movie.byName.has(n)) movie.byName.set(n, id); }
+    return movie.byName.get(name);
+  }
+  // Import URLs are relative paths that may say .gfx where the file is .swf; compare by base name.
+  function fileKey(url) { return String(url).split(/[\\/]/).pop().replace(/\.(swf|gfx)$/i, '').toLowerCase(); }
 
   // ---------- shapes ----------
   function parseShape(tag) {
@@ -761,7 +774,7 @@
 
   global.SWF = {
     TAG, SHAPE_TAGS, Reader, Writer, load, save, parseTags, serializeTags, placeInfo, setPlaceMatrix, setPlaceVisible,
-    displayList, frameLabels, parseShape, parseEditText, encodeEditText, setEditText, decodeBitmap, M, cxCompose, cxApply,
+    displayList, frameLabels, idForName, fileKey, parseShape, parseEditText, encodeEditText, setEditText, decodeBitmap, M, cxCompose, cxApply,
     encodeMatrix, encodeCxform, setPlaceCxform, setShapeColors, zipStore,
     concat, inflate, deflate,
   };
